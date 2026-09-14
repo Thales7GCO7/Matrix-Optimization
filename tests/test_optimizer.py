@@ -1,138 +1,106 @@
 import unittest
 
-import numpy as np
-
-from src.nonlinear_optimizer import (
-    NonlinearOptimizer,
-    optimize_unconstrained,
-    numerical_hessian,
-    numerical_gradient,
-)
-from src.investment_optimizer import (
-    InvestmentOptimizer,
-    make_logreturn,
-    default_portfolio,
-)
-from src.expression_parser import parse_expression
+from src.instruments import Ativo
+from src.portfolio_optimizer import PortfolioOptimizer
 
 
-class TestNumericalDerivatives(unittest.TestCase):
-    def _f(self, x):
-        return x[0] ** 2 + 3.0 * x[0] * x[1] + 2.0 * x[1] ** 2
-
-    def test_numerical_hessian(self):
-        H = numerical_hessian(self._f, np.array([1.0, 1.0]))
-        np.testing.assert_allclose(H, [[2.0, 3.0], [3.0, 4.0]], atol=1e-6)
-
-    def test_numerical_gradient(self):
-        g = numerical_gradient(self._f, np.array([1.0, 1.0]))
-        np.testing.assert_allclose(g, [5.0, 7.0], atol=1e-8)
-
-    def test_numerical_hessian_single_variable(self):
-        H = numerical_hessian(lambda x: x[0] ** 3, np.array([2.0]))
-        np.testing.assert_allclose(H, [[12.0]], atol=1e-5)
+def ativo(nome, taxa, prazo=12, **extra) -> Ativo:
+    defaults = dict(taxa=taxa, prazo_meses=prazo, imposto_modo="isento", admin_modo="nenhuma")
+    defaults.update(extra)
+    return Ativo(nome=nome, **defaults)
 
 
-class TestUnconstrainedOptimization(unittest.TestCase):
-    def test_maximize_quadratic(self):
-        f = parse_expression("-x1**2 - x2**2 + 4*x1 + 6*x2", 2)
-        solver = NonlinearOptimizer(objective=f, x0=[0.0, 0.0], maximize=True)
-        status, solution = solver.solve()
-        self.assertEqual(status, "otimo")
-        np.testing.assert_allclose(solution, [2.0, 3.0], atol=1e-6)
-        self.assertAlmostEqual(solver.optimal_value, 13.0, places=6)
+class TestAlocacaoInicial(unittest.TestCase):
+    def test_tudo_no_melhor_ativo(self):
+        a = ativo("A", 0.10)
+        b = ativo("B", 0.05)
+        res = PortfolioOptimizer([a, b], capital_inicial=1000.0, tma_anual=0.03, inflacao_anual=0.0).resolver()
+        mapa = {i.nome: i for i in res.indicadores}
+        self.assertAlmostEqual(mapa["A"].aporte_inicial, 1000.0)
+        self.assertAlmostEqual(mapa["B"].aporte_inicial, 0.0)
+        self.assertAlmostEqual(mapa["Reserva (TMA)"].aporte_inicial, 0.0)
 
-    def test_minimize_rosenbrock(self):
-        def rosen(x):
-            return (
-                100.0 * (x[1] - x[0] ** 2) ** 2
-                + (1.0 - x[0]) ** 2
-            )
+    def test_respeita_maximo_e_reserva_leva_resto(self):
+        a = ativo("A", 0.10, aporte_inicial_max=600.0)
+        b = ativo("B", 0.05, aporte_inicial_max=100.0)
+        res = PortfolioOptimizer([a, b], capital_inicial=1000.0, tma_anual=0.03, inflacao_anual=0.0).resolver()
+        mapa = {i.nome: i for i in res.indicadores}
+        self.assertAlmostEqual(mapa["A"].aporte_inicial, 600.0)
+        self.assertAlmostEqual(mapa["B"].aporte_inicial, 100.0)
+        self.assertAlmostEqual(mapa["Reserva (TMA)"].aporte_inicial, 300.0)
 
-        status, solution = optimize_unconstrained(
-            objective=rosen, x0=[-1.2, 1.0], maximize=False
-        )
-        self.assertEqual(status, "otimo")
-        np.testing.assert_allclose(solution, [1.0, 1.0], atol=1e-4)
+    def test_reserva_vence_ate_ativo_abaixo_da_tma(self):
+        abaixo = ativo("Ruim", 0.02)  # taxa liquida abaixo da TMA 3%
+        res = PortfolioOptimizer([abaixo], capital_inicial=500.0, tma_anual=0.03, inflacao_anual=0.0).resolver()
+        mapa = {i.nome: i for i in res.indicadores}
+        self.assertAlmostEqual(mapa["Ruim"].aporte_inicial, 0.0)
+        self.assertAlmostEqual(mapa["Reserva (TMA)"].aporte_inicial, 500.0)
 
-    def test_analytic_gradient(self):
-        def f(x):
-            return -((x[0] - 3) ** 2) - (x[1] - 5) ** 2
+    def test_minimo_e_diversificacao_obrigatoria(self):
+        a = ativo("A", 0.10)
+        b = ativo("B", 0.05, aporte_inicial_min=400.0)
+        res = PortfolioOptimizer([a, b], capital_inicial=1000.0, tma_anual=0.03, inflacao_anual=0.0).resolver()
+        mapa = {i.nome: i for i in res.indicadores}
+        self.assertAlmostEqual(mapa["B"].aporte_inicial, 400.0)  # minimo garantido
+        self.assertAlmostEqual(mapa["A"].aporte_inicial, 600.0)  # resto no melhor
 
-        def grad(x):
-            return [-2.0 * (x[0] - 3), -2.0 * (x[1] - 5)]
-
-        status, solution = optimize_unconstrained(
-            objective=f, x0=[0.0, 0.0], gradient=grad, maximize=True
-        )
-        self.assertEqual(status, "otimo")
-        np.testing.assert_allclose(solution, [3.0, 5.0], atol=1e-6)
-
-
-class TestConstrainedOptimization(unittest.TestCase):
-    def test_equality_constraint(self):
-        f = parse_expression("x1*x2", 2)
-        constraints = [
-            {"type": "eq", "fun": lambda x: [x[0] + 2 * x[1] - 10]}
-        ]
-        solver = NonlinearOptimizer(
-            objective=f,
-            x0=[1.0, 1.0],
-            bounds=[(0, None), (0, None)],
-            constraints=constraints,
-            maximize=True,
-        )
-        status, solution = solver.solve()
-        self.assertEqual(status, "otimo")
-        np.testing.assert_allclose(solution, [5.0, 2.5], atol=1e-6)
-        self.assertAlmostEqual(solver.optimal_value, 12.5, places=6)
-
-    def test_inequality_constraint(self):
-        f = parse_expression("x1*x2", 2)
-        constraints = [
-            {"type": "ineq", "fun": lambda x: [8 - x[0] ** 2 - x[1] ** 2]}
-        ]
-        solver = NonlinearOptimizer(
-            objective=f,
-            x0=[0.5, 0.5],
-            bounds=[(0, None), (0, None)],
-            constraints=constraints,
-            maximize=True,
-        )
-        status, solution = solver.solve()
-        self.assertEqual(status, "otimo")
-        np.testing.assert_allclose(solution, [2.0, 2.0], atol=1e-6)
+    def test_minimo_acima_do_budget_da_erro(self):
+        a = ativo("A", 0.10)
+        b = ativo("B", 0.05, aporte_inicial_min=1200.0)
+        res = PortfolioOptimizer([a, b], capital_inicial=1000.0, tma_anual=0.03, inflacao_anual=0.0).resolver()
+        self.assertTrue(res.erro)
 
 
-class TestInvestmentOptimizer(unittest.TestCase):
-    def test_symmetric_log_returns(self):
-        funcs = [make_logreturn(10.0, 1.0), make_logreturn(10.0, 1.0)]
-        opt = InvestmentOptimizer(funcs, budget=20.0)
-        status, solution = opt.solve()
-        self.assertEqual(status, "otimo")
-        np.testing.assert_allclose(solution, [10.0, 10.0], atol=1e-6)
-        self.assertAlmostEqual(opt.optimal_return, 20.0 * np.log(11.0), places=8)
+class TestAlocacaoMensal(unittest.TestCase):
+    def test_distribui_aporte_mensal(self):
+        a = ativo("A", 0.10, usa_aporte_mensal=True, aporte_mensal_max=200.0)
+        b = ativo("B", 0.05, usa_aporte_mensal=True, aporte_mensal_max=150.0)
+        res = PortfolioOptimizer(
+            [a, b], capital_inicial=0.0, tma_anual=0.03, inflacao_anual=0.0,
+            aporte_mensal=300.0, usar_aporte_mensal=True,
+        ).resolver()
+        mapa = {i.nome: i for i in res.indicadores}
+        self.assertAlmostEqual(mapa["A"].aporte_mensal, 200.0)
+        self.assertAlmostEqual(mapa["B"].aporte_mensal, 100.0)
+        self.assertAlmostEqual(mapa["Reserva (TMA)"].aporte_mensal, 0.0)
 
-    def test_budget_fully_allocated(self):
-        opt = InvestmentOptimizer(default_portfolio(), budget=1000.0)
-        status, solution = opt.solve()
-        self.assertEqual(status, "otimo")
-        self.assertAlmostEqual(np.sum(solution), 1000.0, places=6)
-        self.assertTrue(np.all(solution >= 0.0))
+    def test_sem_aporte_mensal_e_ignorado(self):
+        a = ativo("A", 0.10, usa_aporte_mensal=False, aporte_mensal_max=200.0)
+        res = PortfolioOptimizer(
+            [a], capital_inicial=1000.0, tma_anual=0.03, inflacao_anual=0.0,
+            aporte_mensal=300.0, usar_aporte_mensal=True,
+        ).resolver()
+        mapa = {i.nome: i for i in res.indicadores}
+        self.assertAlmostEqual(mapa["A"].aporte_inicial, 1000.0)
+        self.assertAlmostEqual(mapa["A"].aporte_mensal, 0.0)
+        self.assertAlmostEqual(mapa["Reserva (TMA)"].aporte_mensal, 300.0)
 
-    def test_returns_with_upper_bounds(self):
-        funcs = [make_logreturn(10.0, 1.0), make_logreturn(10.0, 1.0)]
-        opt = InvestmentOptimizer(funcs, budget=20.0, upper_bounds=[5.0, 20.0])
-        status, solution = opt.solve()
-        self.assertEqual(status, "otimo")
-        np.testing.assert_allclose(solution, [5.0, 15.0], atol=1e-6)
 
-    def test_display(self):
-        opt = InvestmentOptimizer([make_logreturn(10.0, 1.0)], budget=10.0)
-        opt.solve()
-        display = opt.get_display()
-        self.assertIn("Alocacao otima", display)
-        self.assertIn("Retorno total otimo", display)
+class TestComImposto(unittest.TestCase):
+    def test_imposto_maior_reduz_prioridade(self):
+        a = ativo("A", 0.15, imposto_modo="fixo", imposto_percentual=0.5)  # taixa liquida reduzida
+        b = ativo("B", 0.09)  # isento
+        res = PortfolioOptimizer([a, b], capital_inicial=1000.0, tma_anual=0.03, inflacao_anual=0.0).resolver()
+        mapa = {i.nome: i for i in res.indicadores}
+        # 15% bruto com IR 50% -> liquido ~8,1%; B isento 9% -> B deve receber tudo.
+        self.assertAlmostEqual(mapa["A"].aporte_inicial, 0.0)
+        self.assertAlmostEqual(mapa["B"].aporte_inicial, 1000.0)
+
+
+class TestCarteiraComposta(unittest.TestCase):
+    def test_carteira_indicadores_sao_coerentes(self):
+        a = ativo("A", 0.10, aporte_inicial_max=500.0, usa_aporte_mensal=True, aporte_mensal_max=100.0)
+        res = PortfolioOptimizer(
+            [a], capital_inicial=800.0, tma_anual=0.05, inflacao_anual=0.04,
+            aporte_mensal=100.0, usar_aporte_mensal=True,
+        ).resolver()
+        self.assertEqual(res.erro, "")
+        c = res.carteira
+        # capital inicial = 500 (ativo A) + 300 (reserva) = 800
+        self.assertAlmostEqual(c.capital_inicial, 800.0)
+        self.assertAlmostEqual(c.reserva, 300.0)
+        self.assertGreater(c.montante_liquido, 0.0)
+        self.assertIsNotNone(c.tir_anual)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Otimizador de Investimentos</title>
+<style>
+  :root {
+    --bg: #f5f7fa; --card: #ffffff; --border: #d7dbe2;
+    --txt: #1f2733; --muted: #5c6675;
+    --blue: #1f6feb; --blue-dark: #174ea6;
+    --crimson: #c0392b; --warn-bg: #fff7e6; --warn-brd: #f0c36d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--txt); }
+  header { background: linear-gradient(135deg, #174ea6, #1f6feb); color: #fff; padding: 28px 24px 20px; }
+  header h1 { margin: 0; font-size: 22px; }
+  header p { margin: 6px 0 0; opacity: .92; font-size: 14px; }
+  main { max-width: 1080px; margin: 20px auto 60px; padding: 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .card h2 { margin: 0 0 14px; font-size: 17px; }
+  .grid { display: grid; gap: 14px; }
+  .g2 { grid-template-columns: repeat(2, 1fr); }
+  .g3 { grid-template-columns: repeat(3, 1fr); }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  input[type=number], input[type=text], select {
+    font: inherit; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--txt);
+  }
+  input:focus, select:focus { outline: 2px solid #a6c8ff; border-color: var(--blue); }
+  .chk { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--txt); padding-top: 20px; }
+  button { font: inherit; cursor: pointer; border-radius: 7px; border: 1px solid var(--border); background: #eef1f6; color: var(--txt); padding: 9px 14px; }
+  button:hover { background: #e2e7ee; }
+  button.primary { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; padding: 11px 22px; font-size: 15px; }
+  button.primary:hover { background: var(--blue-dark); }
+  button:disabled { opacity: .6; cursor: default; }
+  .toolbar { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
+  .toolbar .spacer { flex: 1; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .ativo-card { border: 1px solid var(--border); border-radius: 9px; padding: 14px 16px; margin-bottom: 12px; background: #fbfcfe; }
+  .ac-head { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .ac-head input[type=text] { flex: 1; font-weight: 600; }
+  .ac-head button { background: #fdecec; border-color: #f2c4c4; color: var(--crimson); }
+  [hidden] { display: none !important; }
+  .banner { border: 1px solid var(--warn-brd); background: var(--warn-bg); color: #7a5900; padding: 12px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
+  .banner.err { border-color: #f0a3a3; background: #fdecec; color: #8d1f1f; }
+  .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 6px 0 4px; }
+  .metric { border: 1px solid var(--border); border-radius: 9px; padding: 12px 13px; background: #fbfcfe; }
+  .metric .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .metric .v { font-size: 18px; font-weight: 700; margin-top: 4px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 8px 9px; text-align: right; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+  th:first-child, td:first-child { text-align: left; }
+  tr:hover td { background: #f3f7fd; }
+  .tbl-wrap { overflow-x: auto; }
+  .uso ul { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.7; }
+  .charts img { width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+  .charts img + img { margin-top: 14px; }
+  details { margin-top: 16px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; background: #fbfcfe; }
+  summary { cursor: pointer; font-weight: 600; color: var(--blue-dark); }
+  .gloss { font-size: 13px; line-height: 1.65; }
+  .gloss p { margin: 6px 0; }
+  #resultado { display: none; }
+  @media (max-width: 900px) { .metrics { grid-template-columns: repeat(2, 1fr); } .g3, .g2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Otimizador de Investimentos</h1>
+  <p>Aloca capital entre ativos de retorno fixo considerando taxa por período, imposto, taxas administrativas e o custo de oportunidade (TMA), com ROI, VPL, TIR, payback e alfa.</p>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Cenário</h2>
+    <div class="grid g3">
+      <label>Capital disponível (R$)
+        <input id="capital" type="number" min="0" step="500" value="10000">
+      </label>
+      <label class="chk"><input id="usar-mensal" type="checkbox" checked> Permitir aportes mensais</label>
+      <label id="lbl-aporte">Disponibilidade mensal (R$)
+        <input id="aporte-mensal" type="number" min="0" step="50" value="500">
+      </label>
+    </div>
+
+    <h2 style="margin-top:18px">Taxa mínima de atratividade (TMA)</h2>
+    <div class="grid g3">
+      <label>Origem da TMA
+        <select id="tma-modo">
+          <option value="auto">Auto (SELIC + IPCA)</option>
+          <option value="manual">Manual</option>
+        </select>
+      </label>
+      <label id="lbl-selic">SELIC (% a.a.)
+        <input id="selic" type="number" min="0" step="0.25" value="10.5">
+      </label>
+      <label id="lbl-ipca">IPCA (% a.a.)
+        <input id="ipca" type="number" min="0" step="0.25" value="4.5">
+      </label>
+      <label id="lbl-tma-manual" hidden>Taxa mínima de atratividade (% a.a.)
+        <input id="tma-manual" type="number" min="0" step="0.25" value="5.5">
+      </label>
+      <label id="lbl-inflacao" hidden>Inflação p/ retorno real (% a.a.)
+        <input id="inflacao" type="number" min="0" step="0.25" value="4.5">
+      </label>
+    </div>
+    <p class="hint">TMA = juro real do investimento. Serve de taxa de desconto (VPL), custo de oportunidade e taxa da reserva.</p>
+  </section>
+
+  <section class="card">
+    <h2>Ativos</h2>
+    <div class="toolbar">
+      <button id="btn-exemplo" type="button">Carregar carteira exemplo</button>
+      <button id="btn-novo" type="button">Novo ativo</button>
+      <span class="spacer"></span>
+      <button id="btn-otimizar" class="primary" type="button">Otimizar alocação</button>
+    </div>
+    <p class="hint">A alocação prioriza o ativo de maior retorno líquido anualizado (após imposto e taxas), respeitando limites. Taxas e percentuais em %.</p>
+    <div id="ativos"></div>
+  </section>
+
+  <section class="card" id="resultado">
+    <h2>Resultado</h2>
+    <div id="erro"></div>
+    <div id="avisos"></div>
+    <div class="metrics" id="metricas-r1"></div>
+    <div class="metrics" id="metricas-r2" style="margin-top:12px"></div>
+
+    <h3 style="margin-top:22px">Uso do capital</h3>
+    <div class="uso" id="uso"></div>
+
+    <h3 style="margin-top:22px">Alocação e desempenho por ativo</h3>
+    <div class="tbl-wrap"><table id="tab-ind"></table></div>
+    <p class="hint" id="tab-ind-caption"></p>
+
+    <h3 style="margin-top:22px">Deduções (imposto + taxa administrativa)</h3>
+    <div class="tbl-wrap"><table id="tab-ded"></table></div>
+
+    <h3 style="margin-top:22px">Gráficos</h3>
+    <div class="charts">
+      <img id="g-aloc" alt="Alocação de capital" hidden>
+      <img id="g-pat" alt="Evolução do patrimônio" hidden>
+      <img id="g-lucro" alt="Lucro vs TMA" hidden>
+    </div>
+
+    <details>
+      <summary>Significado dos indicadores</summary>
+      <div class="gloss">
+        <p><b>ROI</b>: lucro líquido / capital aplicado no período. <b>ROI anualizado</b>: retorno equivalente por ano (TIR), comparável entre prazos.</p>
+        <p><b>VPL</b>: valor presente do fluxo descontado na TMA. VPL &gt; 0 agrega valor além do custo de oportunidade.</p>
+        <p><b>TIR</b>: taxa por ano que zera o VPL. Desejável quando &gt; TMA.</p>
+        <p><b>Payback</b>: mês em que o resgate recupera o capital (simples/descontado). "n/c" = prazo não recupera.</p>
+        <p><b>IL</b> (índice de lucratividade): VPL/capital + 1. Acima de 1 paga o custo de oportunidade.</p>
+        <p><b>Alfa</b>: retorno anualizado − TMA. <b>Linha TMA</b>: o que o mesmo fluxo de aportes renderia na taxa mínima.</p>
+      </div>
+    </details>
+  </section>
+</main>
+
+<script>
+"use strict";
+const PERIODOS = ["anual","semestral","trimestral","bimestral","mensal","semanal","diaria"];
+const PERIODO_LABEL = {anual:"Anual", semestral:"Semestral", trimestral:"Trimestral", bimestral:"Bimestral",
+  mensal:"Mensal", semanal:"Semanal", diaria:"Diária"};
+const IMPOSTO = {isento:"Isento", fixo:"Percentual fixo", ir_tabela:"Tabela regressiva do IR"};
+const ADMIN = {nenhuma:"Sem taxa", aporte:"% sobre o aporte", patrimonio:"% a.a. sobre o patrimônio",
+  rendimento:"% sobre o rendimento"};
+const BASE = {efetiva:"Efetiva", nominal:"Nominal"};
+
+const PADRAO = {
+  nome:"", taxa_pct:10.0, periodo:"anual", base:"efetiva", prazo_meses:12,
+  imposto_modo:"isento", imposto_pct:0.0, admin_modo:"nenhuma", admin_pct:0.0,
+  inicial_min:0.0, inicial_max:0.0, usa_mensal:false, mensal_max:0.0,
+};
+
+let ativos = [];
+
+const $ = (id) => document.getElementById(id);
+const fmt = (v, d=2) => v == null ? "-" : Number(v).toLocaleString("pt-BR", {minimumFractionDigits:d, maximumFractionDigits:d});
+const fmtPct = (v, d=2) => v == null ? "-" : (v*100).toLocaleString("pt-BR", {minimumFractionDigits:d, maximumFractionDigits:d}) + "%";
+
+function el(tag, attrs={}, children=[]) {
+  const node = document.createElement(tag);
+  for (const [k,v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v;
+    else if (k === "text") node.textContent = v;
+    else if (k === "html") node.innerHTML = v;
+    else if (k in node && typeof node[k] !== "function") node[k] = v;
+    else if (v != null) node.setAttribute(k, v);
+  }
+  for (const c of children) node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  return node;
+}
+
+function opts(map, val) {
+  return Object.entries(map).map(([k,l]) => el("option", {value:k, text:l, selected: k===val}));
+}
+function inp(cls, type, value, extra={}) {
+  return el("input", Object.assign({type, class:cls, value}, extra));
+}
+
+function rowAtivo(a) {
+  const card = el("div", {class:"ativo-card"}, [
+    el("div", {class:"ac-head"}, [
+      el("input", {type:"text", class:"ac-nome", value:a.nome, placeholder:"Ex.: CDB 110% do CDI"}),
+      el("button", {type:"button", class:"ac-rem", text:"Remover"}),
+    ]),
+    el("div", {class:"grid g3"}, [
+      el("label", {text:"Taxa (% do período)"}, [inp("ac-taxa","number",a.taxa_pct,{step:0.1})]),
+      el("label", {text:"Capitalização"}, [el("select",{class:"ac-periodo"}, opts(PERIODO_LABEL, a.periodo))]),
+      el("label", {text:"Base"}, [el("select",{class:"ac-base"}, opts(BASE, a.base))]),
+      el("label", {text:"Prazo (meses)"}, [inp("ac-prazo","number",a.prazo_meses,{min:1,step:1})]),
+      el("label", {text:"Imposto"}, [el("select",{class:"ac-imposto"}, opts(IMPOSTO, a.imposto_modo))]),
+      el("label", {class:"ac-fixo", text:"IR % sobre o rendimento", hidden:a.imposto_modo!=="fixo"},
+        [inp("ac-imposto-pct","number",a.imposto_pct,{step:0.5,min:0})]),
+      el("label", {text:"Taxa administrativa"}, [el("select",{class:"ac-admin"}, opts(ADMIN, a.admin_modo))]),
+      el("label", {class:"ac-pct-admin", text:"% da taxa", hidden:a.admin_modo==="nenhuma"},
+        [inp("ac-admin-pct","number",a.admin_pct,{step:0.25,min:0})]),
+      el("label", {text:"Mín. inicial (R$)"}, [inp("ac-min","number",a.inicial_min,{min:0,step:50})]),
+      el("label", {text:"Máx. inicial (R$)"}, [inp("ac-max","number",a.inicial_max,{min:0,step:50})]),
+      el("label", {class:"chk ac-usa-lbl"}, [
+        inp("ac-usa-mensal","checkbox",a.usa_mensal,{checked:a.usa_mensal}),
+        el("span", {text:"Permite aporte mensal"}),
+      ]),
+      el("label", {class:"ac-mensalmax", text:"Máx. mensal (R$)", hidden:!a.usa_mensal},
+        [inp("ac-mensal-max","number",a.mensal_max,{step:25,min:0})]),
+    ]),
+  ]);
+  return card;
+}
+
+function renderAtivos() {
+  const cont = $("ativos");
+  cont.innerHTML = "";
+  ativos.forEach((a, i) => {
+    const card = rowAtivo(a);
+    card.dataset.idx = i;
+    cont.appendChild(card);
+  });
+}
+
+function readRow(idx) {
+  const card = document.querySelector(`.ativo-card[data-idx="${idx}"]`);
+  if (!card) return null;
+  const q = (sel) => card.querySelector(sel);
+  const num = (sel) => Number(q(sel).value);
+  return {
+    nome: q(".ac-nome").value.trim() || `Ativo ${idx+1}`,
+    taxa_pct: num(".ac-taxa"),
+    periodo: q(".ac-periodo").value,
+    base: q(".ac-base").value,
+    prazo_meses: num(".ac-prazo"),
+    imposto_modo: q(".ac-imposto").value,
+    imposto_pct: num(".ac-imposto-pct"),
+    admin_modo: q(".ac-admin").value,
+    admin_pct: num(".ac-admin-pct"),
+    inicial_min: num(".ac-min"),
+    inicial_max: num(".ac-max"),
+    usa_mensal: q(".ac-usa-mensal").checked,
+    mensal_max: num(".ac-mensal-max"),
+  };
+}
+
+function onRowChange(card) {
+  const idx = Number(card.dataset.idx);
+  ativos[idx] = readRow(idx);
+  const a = ativos[idx];
+  card.querySelector(".ac-fixo").hidden = a.imposto_modo !== "fixo";
+  card.querySelector(".ac-pct-admin").hidden = a.admin_modo === "nenhuma";
+  card.querySelector(".ac-mensalmax").hidden = !a.usa_mensal;
+}
+
+$("ativos").addEventListener("input", (e) => {
+  const card = e.target.closest(".ativo-card");
+  if (card) onRowChange(card);
+});
+$("ativos").addEventListener("change", (e) => {
+  const card = e.target.closest(".ativo-card");
+  if (card) onRowChange(card);
+});
+$("ativos").addEventListener("click", (e) => {
+  const rem = e.target.closest(".ac-rem");
+  if (!rem) return;
+  const card = rem.closest(".ativo-card");
+  ativos.splice(Number(card.dataset.idx), 1);
+  renderAtivos();
+});
+$("btn-novo").addEventListener("click", () => { ativos.push({...PADRAO}); renderAtivos(); });
+$("btn-exemplo").addEventListener("click", async () => {
+  try {
+    const r = await fetch("/api/exemplos");
+    const j = await r.json();
+    ativos = j.ativos.map((x) => ({...x}));
+    renderAtivos();
+  } catch (err) { alert("Falha ao carregar a carteira exemplo: " + err); }
+});
+
+function scenario() {
+  const manual = $("tma-modo").value === "manual";
+  $("lbl-selic").hidden = manual;
+  $("lbl-ipca").hidden = manual;
+  $("lbl-tma-manual").hidden = !manual;
+  $("lbl-inflacao").hidden = !manual;
+  const usarMensal = $("usar-mensal").checked;
+  $("aporte-mensal").disabled = !usarMensal;
+  $("lbl-aporte").style.opacity = usarMensal ? "1" : ".5";
+}
+["tma-modo","usar-mensal"].forEach((id) => $(id).addEventListener("change", scenario));
+scenario();
+
+$("btn-otimizar").addEventListener("click", async () => {
+  for (let i = 0; i < ativos.length; i++) ativos[i] = readRow(i);
+  const payload = {
+    capital: Number($("capital").value),
+    usar_mensal: $("usar-mensal").checked,
+    aporte_mensal: Number($("aporte-mensal").value),
+    tma_modo: $("tma-modo").value,
+    selic_pct: Number($("selic").value),
+    ipca_pct: Number($("ipca").value),
+    tma_manual_pct: Number($("tma-manual").value),
+    inflacao_pct: Number($("inflacao").value),
+    ativos,
+  };
+  const btn = $("btn-otimizar");
+  btn.textContent = "Otimizando...";
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/otimizar", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+      const msg = j.erro ||
+        (Array.isArray(j.detail) ? j.detail.map((d) => d.msg).join("; ") : (j.detail || "Erro desconhecido"));
+      showErro(msg);
+      return;
+    }
+    renderResultado(j);
+  } catch (err) {
+    showErro("Falha na requisição: " + err);
+  } finally {
+    btn.textContent = "Otimizar alocação";
+    btn.disabled = false;
+  }
+});
+
+function showErro(msg) {
+  const box = $("erro");
+  box.innerHTML = "";
+  box.appendChild(el("div", {class:"banner err", text:msg}));
+  $("resultado").style.display = "block";
+}
+
+function mkMetric(label, value, formatter) {
+  return el("div", {class:"metric"}, [
+    el("div", {class:"k", text:label}),
+    el("div", {class:"v", text:formatter(value)}),
+  ]);
+}
+
+function renderResultado(j) {
+  const {carteira:c, cenario, uso, indicadores, graficos, avisos} = j;
+  $("resultado").style.display = "block";
+  $("erro").innerHTML = "";
+
+  $("avisos").innerHTML = "";
+  (avisos||[]).forEach((w) => $("avisos").appendChild(el("div", {class:"banner", text:w})));
+
+  const r1 = $("metricas-r1"); r1.innerHTML = "";
+  r1.appendChild(mkMetric("Capital total do plano", c.capital_aplicado, fmt));
+  r1.appendChild(mkMetric("Reserva (TMA)", c.reserva, fmt));
+  r1.appendChild(mkMetric("Patrimônio líquido final", c.montante_liquido, fmt));
+  r1.appendChild(mkMetric("Lucro líquido", c.lucro_liquido, fmt));
+  r1.appendChild(mkMetric("ROI", c.roi, fmtPct));
+
+  const r2 = $("metricas-r2"); r2.innerHTML = "";
+  r2.appendChild(mkMetric("ROI anualizado (TIR)", c.roi_anualizado, fmtPct));
+  r2.appendChild(mkMetric("VPL", c.vpl, fmt));
+  r2.appendChild(mkMetric("Alfa sobre TMA", c.alfa, fmtPct));
+  r2.appendChild(mkMetric("TMA usada", cenario.tma_pct, (v) => fmt(v) + "%"));
+  r2.appendChild(mkMetric("Linha TMA (mesmo fluxo)", c.lucro_tma, fmt));
+
+  const ul = el("ul", {}, [
+    el("li", {text:`Capital inicial: ${fmt(uso.capital_aplicado)} de ${fmt(cenario.capital_inicial)} disponíveis`}),
+  ]);
+  if (cenario.aporte_mensal_disponivel > 0)
+    ul.appendChild(el("li", {text:`Aportes mensais: ${fmt(uso.aportes_mensais)} de ${fmt(cenario.aporte_mensal_disponivel)} disponíveis`}));
+  ul.appendChild(el("li", {text:`Reserva: ${fmt(uso.reserva)} (rendendo na TMA de ${fmt(cenario.tma_pct)}%)`}));
+  ul.appendChild(el("li", {text:`Ganho adicional vs TMA: ${fmt(uso.ganho_adicional)}`}));
+  ul.appendChild(el("li", {text:`Se todo o capital ficasse na TMA, o lucro seria ${fmt(c.lucro_tma)}.`}));
+  $("uso").innerHTML = "";
+  $("uso").appendChild(ul);
+
+  const cabo = ["Ativo","Inicial (R$)","Mensal (R$)","Patrimônio liq. (R$)","Lucro (R$)","ROI","ROI a.a.","VPL (R$)","TIR a.a.","Payback","IL","Alfa"];
+  const asRows = indicadores.map((i) => [
+    i.reserva ? i.nome + " ↗" : i.nome,
+    fmt(i.aporte_inicial), fmt(i.aporte_mensal), fmt(i.montante_liquido), fmt(i.lucro_liquido),
+    fmtPct(i.roi), fmtPct(i.roi_anualizado), fmt(i.vpl), fmtPct(i.tir_anual),
+    i.payback_simples != null ? `${(i.payback_simples|0)}m / ${(i.payback_descontado|0)}m` : "n/c",
+    i.il != null ? fmt(i.il) : "-",
+    fmtPct(i.alfa),
+  ]);
+  $("tab-ind").replaceChildren(tab(cabo, asRows));
+  $("tab-ind-caption").textContent = "Payback em meses (simples/descontado). ↗ = reserva na TMA. 'n/c' = prazo não recupera o capital.";
+
+  const aliq = (x) => Number.isFinite(x) ? (x*100).toLocaleString("pt-BR",{maximumFractionDigits:1}) + "%" : "-";
+  const cabd = ["Ativo","Rend. bruto (R$)","Imposto (R$)","Alíquota","Taxa adm. (R$)"];
+  const dedRows = indicadores.map((i) => [i.nome, fmt(i.rendimento_bruto), fmt(i.imposto), aliq(i.aliquota_imposto), fmt(i.admin)]);
+  $("tab-ded").replaceChildren(tab(cabd, dedRows));
+
+  const setImg = (id, uri) => { const img = $(id); img.src = uri || ""; img.hidden = !uri; };
+  setImg("g-aloc", graficos.alocacao);
+  setImg("g-pat", graficos.patrimonio);
+  setImg("g-lucro", graficos.lucro_tma);
+
+  $("resultado").scrollIntoView({behavior:"smooth"});
+}
+
+function tab(head, rows) {
+  const t = el("table");
+  t.appendChild(el("thead", {}, [el("tr", {}, head.map((h) => el("th", {text:h})))]));
+  const tb = el("tbody");
+  for (const r of rows) tb.appendChild(el("tr", {}, r.map((cell) => el("td", {text: cell}))));
+  t.appendChild(tb);
+  return t;
+}
+
+(async function init() {
+  try {
+    const r = await fetch("/api/exemplos");
+    const j = await r.json();
+    ativos = j.ativos.map((x) => ({...x}));
+  } catch (e) {
+    ativos = [{...PADRAO}];
+  }
+  renderAtivos();
+})();
+</script>
+</body>
+</html>

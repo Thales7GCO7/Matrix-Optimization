@@ -1,199 +1,141 @@
-# Matrix Optimization
+# Otimizador de Investimentos
 
-Ferramenta interativa de Álgebra Linear, Programação Linear e Otimização Não Linear implementada em Python.
+Aplicação web (FastAPI + página HTML) que **aloca capital entre ativos de retorno fixo**
+considerando taxas por período, imposto de renda, taxas administrativas e o **custo de
+oportunidade** (TMA), calculando índices de desempenho como ROI, VPL, TIR, payback e índice de
+lucratividade.
 
-## Visão Geral
+## Visão geral
 
-O projeto resolve quatro tipos de problemas matemáticos através de duas interfaces:
+O problema: dado um **capital disponível** hoje e (opcionalmente) uma **disponibilidade mensal**,
+distribuir o dinheiro entre ativos com diferentes características para maximizar o **patrimônio
+líquido final** (após imposto e taxas administrativas).
 
-- **Terminal (CLI)** — menu interativo em `main.py`
-- **Web (Streamlit)** — formulários dinâmicos com explicações, passos e gráficos em `app.py`
-
-1. **Eliminação de Gauss-Jordan** — resolve sistemas de equações lineares
-2. **Método Simplex** — resolve problemas de otimização linear (programação linear)
-3. **Newton-Raphson** — resolve sistemas de equações não lineares
-4. **Otimização Não Linear (SciPy)** — maximiza/minimiza funções não lineares com restrições
-5. **Otimização de Portfólio de Investimentos** — maximiza o retorno na alocação de recursos
-
-## Funcionalidades
-
-### 1. Resolver Sistemas de Equações (Gauss-Jordan)
-
-Dado um sistema de equações lineares na forma `Ax = b`, o algoritmo aplica eliminação gaussiana com pivoteamento parcial para transformar a matriz aumentada na forma escalonada reduzida (RREF), encontrando a solução única, identificando sistemas inconsistentes ou detectando infinitas soluções.
-
-**Exemplo de entrada:**
-```
-Equações: 2
-Variáveis: 2
-Matriz aumentada:
-  Linha 1: 2 3 8
-  Linha 2: 1 2 5
-```
-**Saída:** x₁ = 1, x₂ = 2
-
-### 2. Otimização Linear (Simplex)
-
-Maximiza uma função objetivo `z = c^T * x` sujeita a restrições lineares `A * x <= b`, com `x >= 0`.
-
-O algoritmo monta um tableau simplex, itera selecionando variáveis de entrada e saída, e aplica operações de pivoteamento até encontrar a solução ótima ou detectar que o problema é ilimitado.
-
-**Exemplo de entrada:**
-```
-Variáveis: 2
-Restrições: 3
-c = 3 5
-A:
-  1 0
-  0 2
-  3 2
-b = 4 12 18
-```
-**Saída:** z* = 42, x₁ = 4, x₂ = 6
-
-### 3. Resolução de Equações Não Lineares (Newton-Raphson)
-
-Resolve sistemas de equações não lineares `F(x) = 0` pelo método de Newton-Raphson amortecido (backtracking line search), com convergência quadrática e maior robustez global.
-
-**Características:**
-- Jacobiano calculado automaticamente por complex-step ou diferenças finitas
-- Suporte a Jacobiano analítico fornecido pelo usuário
-- Diagnóstico de convergência, singularidade e divergência
-
-**Exemplos predefinidos:**
-- `x² - 2 = 0` → raiz = √2
-- `x³ - x - 2 = 0`
-- `x₁ + x₂ = 3` e `x₁² + x₂² = 5` → raiz = [1, 2]
-- Entrada manual de expressões arbitrárias
-
-### 4. Otimização Não Linear (SciPy)
-
-Maximiza ou minimiza funções objetivo não lineares sujeitas a:
-- Restrições de igualdade `g(x) = 0`
-- Restrições de desigualdade `g(x) ≥ 0`
-- Limites por variável (`bounds`)
-
-**Métodos utilizados:** SLSQP, BFGS, trust-constr (auto-selecionados)
-
-**Exemplos predefinidos:**
-- Máximo de função quadrática (sem restrições)
-- Máximo com restrição de igualdade (produto de variáveis com soma fixa)
-- Máximo com restrição circular (desigualdade)
-- Entrada manual de expressões arbitrárias
-
-### 5. Otimização de Portfólio de Investimentos
-
-Maximiza o retorno total ao alocar um orçamento fixo entre múltiplas opções de investimento:
+Matematicamente é um problema de programação linear com limites, pois a renda real é
+**proporcional ao capital**. A solução ótima é obtida por **seleção gulosa**: aplica-se primeiro
+nos ativos de maior **retorno líquido anualizado** (após deduções), respeitando os limites mínimo
+e máximo de cada ativo. O capital que sobra, ou que não alcança a TMA, fica em uma **reserva** que
+rende exatamente a taxa mínima.
 
 ```
-Maximizar:  R(x₁, ..., xₙ) = Σ fᵢ(xᵢ)
-Sujeito a:  x₁ + x₂ + ... + xₙ = B      (orçamento)
-            xᵢ ≥ 0                      (não negatividade)
-            xᵢ ≤ Uᵢ                     (limites superior opcionais)
+max Σ Lᵢ(xᵢ)          Lᵢ = patrimônio líquido final do ativo i
+s.a. Σ xᵢ ≤ B         capital inicial disponível
+     Σ pᵢ ≤ B_mensal  aportes mensais disponíveis
+     ℓᵢ ≤ xᵢ ≤ uᵢ     limites por ativo
 ```
 
-**Tipos suportados para `fᵢ(x)`:**
+## Caracterização dos ativos
 
-| Tipo | Fórmula | Característica |
-|------|--------|----------------|
-| `L` Logaritmica | `a * ln(x + c)` | Utilidade concava, retorno marginal decrescente |
-| `E` Exponencial | `a * (1 - e^(-b·x))` | Retorno saturante |
-| `P` Potência | `a * x^p` | Crescimento sublinear (0 < p ≤ 1) |
-| `Q` Quadrática | `a·x - b·x²` | Concava |
+Cada ativo é definido por:
 
-**Propriedade fundamental:** No ótimo, todos os retornos marginais `fᵢ'(xᵢ)` são iguais, o que garante alocação economicamente eficiente de recursos.
+- **Nome** e capital **mínimo/máximo** (inicial) e **máximo mensal**;
+- **Taxa** do período com **base**:
+  - *Efetiva*: taxa do próprio período (composta). Ex.: 1% a.m. ≈ 12,68% a.a.
+  - *Nominal*: taxa anual dividida pelo período. Ex.: 13% a.a. nominal com capitalização mensal
+    usa 13%/12 = 1,083% a.m.
+- **Período de capitalização**: anual, semestral, trimestral, bimestral, mensal (semanal, diária);
+- **Prazo até o resgate** (meses);
+- **Imposto** sobre o rendimento: isento, percentual fixo ou **tabela regressiva do IR** de renda
+  fixa brasileira (22,5% até 180 dias; 20% até 360; 17,5% até 720; 15% acima);
+- **Taxa administrativa**: sobre o aporte, **% a.a. sobre o patrimônio** (taxa de administração de
+  fundos) ou sobre o rendimento (performance fee).
 
-**Exemplo interativo:**
-```
-Orçamento total: 1000
-[n] Investimentos: 4
-Funções de retorno (logarítmica, exponencial, quadrática, logarítmica)
-```
+Há dois fluxos de aporte, por ativo e combináveis:
 
-**Saída:**
-```
-Alocação otima (percentual do orçamento):
-  x1 = 520.178  (52.02%)  retorno marginal = 0.0767492
-  x2 = 73.3165  (7.33%)   retorno marginal = 0.0767492
-  x3 = 81.2694  (8.13%)   retorno marginal = 0.0767492
-  x4 = 325.236  (32.52%)  retorno marginal = 0.0767492
+- **Aporte inicial único** — alocação do capital disponível hoje;
+- **Aporte mensal recorrente** (postecipado) — série uniforme até o resgate.
 
-Retorno total otimo: R* = 459.7303283
-```
+## Taxa mínima de atratividade (TMA)
 
-## Front-end Web (Streamlit)
+A TMA é o **custo de oportunidade** do capital. Pode ser:
 
-O aplicativo web (`app.py`) replica os cinco fluxos do terminal com formulários dinâmicos, explicações educativas de cada variável e fórmula (LaTeX), passos do cálculo e gráficos:
+- informada manualmente; ou
+- calculada como **juro real**: `TMA = (1 + SELIC)/(1 + IPCA) - 1`.
 
-- **Gauss-Jordan** — matriz aumentada `[A|b]` em grade célula a célula (aceita frações como `1/3`), RREF em tabela e classificação da solução
-- **Simplex** — vetor `c`, matriz `A` e vetor `b`; tableau, `x*`, `z*` e gráfico da região viável (2 variáveis)
-- **Newton-Raphson** — expressões `F(x)=0`, chute `x₀`, tolerância e line search; gráfico de convergência do resíduo
-- **Otimização não linear** — objetivo, max/min, igualdades, desigualdades, limites e chute; mapa de contorno da função
-- **Investimentos** — orçamento, funções L/E/P/Q por investimento, limites superiores; barras de alocação e curvas de retorno
+Ela é usada como:
+- taxa de desconto do **VPL**;
+- benchmark do **alfa** (excesso de retorno sobre a TMA);
+- taxa da **reserva** (o que sobra rende a TMA);
+- base do cálculo de **payback descontado** e da comparação "lucro vs. TMA".
 
-**Execução:**
-```bash
-streamlit run app.py
-```
+## Índices de desempenho
 
-Cada tela oferece **entrada manual** e **exemplos predefinidos**, com campos que aceitam inteiros, frações e decimais.
+Calculados **por ativo** e **para a carteira**:
 
-## Estrutura do Projeto
+| Índice | Definição |
+|--------|-----------|
+| **ROI** | `lucro líquido / capital aplicado` (retorno do período) |
+| **ROI anualizado** | retorno equivalente por ano (CAGR/TIR), comparável entre prazos |
+| **Retorno real** | retorno anual líquido descontado da inflação (IPCA) |
+| **VPL** | valor presente do fluxo descontado na TMA (`> 0` agrega valor) |
+| **TIR** | taxa por ano que zera o VPL (`>` TMA é desejável) |
+| **Payback** | mês em que o resgate recupera o capital (simples e descontado) |
+| **IL** | `VPL / capital + 1` (`> 1` paga o custo de oportunidade) |
+| **Alfa** | `ROI anual - TMA` (excesso sobre o custo de oportunidade) |
+| **Lucro na TMA** | o que o mesmo fluxo de aportes renderia na taxa mínima |
+| **Ganho adicional** | `lucro da carteira - lucro na TMA` |
 
-```
-matrix-optimization/
-├── main.py                        # Interface CLI com menu interativo
-├── app.py                         # Interface Web (Streamlit) com as 5 telas
-├── requirements.txt               # Dependências
-├── src/
-│   ├── gaussian_elimination.py    # Eliminação de Gauss-Jordan
-│   ├── simplex.py                 # Método Simplex para PL
-│   ├── nonlinear_solver.py        # Newton-Raphson para sistemas não lineares
-│   ├── nonlinear_optimizer.py     # Otimização não linear via SciPy (SLSQP/BFGS)
-│   ├── investment_optimizer.py    # Otimização de alocação de recursos
-│   ├── expression_parser.py       # Parser seguro de expressões matemáticas
-│   └── utils.py                   # Funções utilitárias (parse/formatação)
-├── web/                           # Front-end Streamlit
-│   ├── explicacoes.py             # Textos educativos (variáveis e fórmulas)
-│   ├── forms.py                   # Formulários dinâmicos (matrizes, vetores, limites)
-│   ├── render.py                  # Renderização de resultados, tabelas e passos
-│   ├── graficos.py                # Gráficos (região viável, convergência, alocação)
-│   └── parsers.py                 # Parse de frações/células (sem dependência de UI)
-├── tests/
-│   ├── test_gaussian.py           # Testes unitários do Gauss-Jordan
-│   ├── test_simplex.py            # Testes unitários do Simplex
-│   ├── test_nonlinear.py          # Testes do Newton-Raphson
-│   ├── test_optimizer.py          # Testes de otimização não linear e investimentos
-│   └── test_web.py                # Testes de parse e render do front-end
-└── plot_simplex.py                # Visualização gráfica da região viável (exemplo)
-```
-
-## Instalação
+## Execução
 
 ```bash
 pip install -r requirements.txt
+uvicorn server:app --reload
 ```
 
-## Uso
+(ou `python server.py`, que abre o navegador em `http://localhost:8000`).
 
-**Terminal:**
-```bash
-python main.py
+Na página, configure o cenário (capital, TMA e recursos mensais), edite a lista de ativos (ou
+carregue a carteira exemplo) e clique em **Otimizar alocação**. Os resultados chegam por
+`POST /api/otimizar`; os gráficos são gerados no servidor (matplotlib) como PNG embutido no JSON.
+
+## API
+
+| Rota | Método | Descrição |
+|------|--------|-----------|
+| `/` | GET | Página HTML (front-end único) |
+| `/api/exemplos` | GET | Carteira de exemplo para o formulário (`ativos[]`) |
+| `/api/otimizar` | POST | Recebe `{capital, usar_mensal, aporte_mensal, tma_modo, selic_pct, ipca_pct, tma_manual_pct, inflacao_pct, ativos[]}` e devolve alocação, índices por ativo, carteira e gráficos |
+
+O payload de ativo espelha o formulário: `nome`, `taxa_pct`, `periodo`, `base`, `prazo_meses`,
+`imposto_modo`/`imposto_pct`, `admin_modo`/`admin_pct`, `inicial_min`/`inicial_max`,
+`usa_mensal`/`mensal_max`. Documentação interativa em `/docs` (OpenAPI).
+
+`POST /api/otimizar` responde:
+
+- **carteira**: agregados por ativo (`montante_liquido`, `roi`, `vpl`, `tir_anual`, `payback`,
+  `il`, `alfa`) e totais da carteira (`capital_aplicado`, `reserva`, `roi`, `roi_anualizado`,
+  `vpl`, `lucro_tma`);
+- **indicadores**: linha por ativo (inclui a reserva da TMA) com a projeção mensal;
+- **uso**: capital inicial aplicado, aportes mensais, reserva e ganho adicional vs. TMA;
+- **graficos**: 3 imagens PNG em base64 (`alocacao`, `patrimonio`, `lucro_tma`);
+- **avisos**: alertas de validação (ex.: sem capital, mínimos excedem o capital).
+
+Erros de negócio e de validação retornam `422` com `{"erro": ...}`.
+
+## Estrutura do projeto
+
 ```
-
-**Web:**
-```bash
-streamlit run app.py
+matrix-optimization/
+├── server.py                      # API FastAPI (GET /, /api/exemplos, POST /api/otimizar)
+├── requirements.txt              # Dependências
+├── src/
+│   ├── math_finance.py           # Conversão de taxas, capitalização, séries, TIR, TMA
+│   ├── tax.py                    # Impostos (fixo/tabela IR) e taxas administrativas
+│   ├── instruments.py            # Modelo de ativo (bruto → líquido) e projeção mensal
+│   ├── performance.py            # Índices: ROI, VPL, TIR, payback, IL, alfa
+│   └── portfolio_optimizer.py    # Alocação ótima (guloso) + reserva na TMA
+├── web/
+│   ├── __init__.py               # Pacote vazio
+│   ├── schema.py                 # Contrato da API (pydantic) e carteira de exemplo
+│   ├── graficos.py               # Gráficos matplotlib → PNG base64
+│   └── static/index.html         # Front-end (HTML/JS puro, sem CDN)
+└── tests/
+    ├── test_math_finance.py      # Taxas, capitalização, séries, TIR, TMA
+    ├── test_tax.py               # Imposto e taxas administrativas
+    ├── test_performance.py       # Indicadores por ativo e carteira
+    ├── test_optimizer.py         # Alocação com limites, reserva e aportes mensais
+    └── test_server.py            # API: exemplos, otimização e erros (422)
 ```
-
-O menu (terminal) apresenta:
-1. Resolver sistema de equações (Gauss-Jordan)
-2. Otimizar problema linear (Simplex)
-3. Resolver equações não lineares (Newton-Raphson)
-4. Otimizar problema não linear
-5. Otimizar portfólio de investimentos
-6. Sair
-
-Aceita números inteiros e frações (ex: `1/3`, `-5/7`). Expressões não lineares aceitam operadores `+ - * / **`, funções `sin cos tan exp log sqrt abs`, constantes `pi e`, e variáveis `x1 x2 ...`.
 
 ## Testes
 
@@ -201,11 +143,14 @@ Aceita números inteiros e frações (ex: `1/3`, `-5/7`). Expressões não linea
 python -m unittest discover tests -v
 ```
 
+Suíte com 45 testes cobrindo o núcleo de cálculo (taxas, impostos, séries, TIR, TMA),
+a alocação (limites, reserva, aportes mensais) e a camada de API via `TestClient`
+(carteira exemplo, TMA manual e erros `422`).
+
 ## Tecnologias
 
 - Python 3.12
-- NumPy (cálculos numéricos)
-- SciPy (otimização não linear)
-- Matplotlib (visualização gráfica)
-- Streamlit (front-end web)
-- `fractions.Fraction` (aritmética exata com frações)
+- NumPy / SciPy (`brentq` para TIR)
+- FastAPI + Uvicorn (servidor HTTP)
+- Matplotlib (gráficos em PNG)
+- Front-end em HTML/CSS/JS puro (sem framework, sem CDN)
