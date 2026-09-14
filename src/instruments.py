@@ -8,15 +8,18 @@ serie de aportes:
 - aporte mensal P (recorrente, postecipado, ao fim de cada mes).
 
 A funcao de lucro liquido final e linear em A e em P, o que permite
-alocacao otima por selecao gulosa (energia economica: aplicar primeiro
+alocacao otima por selecao otimizada (energia economica: aplicar primeiro
 onde o retorno liquido anualizado e maior).
 """
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+import numpy as np
+
 from . import math_finance as mf
 from . import tax
+from . import matrix
 
 #: Modos aceitos para base da taxa e tipos de imposto/taxa.
 BASES_TAXA = ["efetiva", "nominal"]
@@ -176,3 +179,8 @@ def taxa_liquida_anualizada(ativo: Ativo) -> float:
     if ml <= 0.0:
         return float("-inf")
     return (ml) ** (12.0 / ativo.prazo_meses) - 1.0
+
+
+def taxas_liquidas_vetor(ativos: List[Ativo]) -> np.ndarray:
+    """Wrapper para matrix.taxas_liquidas_vetor."""
+    return matrix.taxas_liquidas_vetor(ativos)

@@ -9,8 +9,11 @@ oportunidade do capital; a inflacao permite calcular o retorno real.
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+import numpy as np
+
 from . import instruments
 from . import math_finance as mf
+from . import matrix
 
 
 @dataclass
@@ -228,24 +231,20 @@ def calcular_carteira(
     prazos = [len(i.projecao) - 1 for i in indicadores]
     p_meses = [i.aporte_mensal for i in indicadores]
 
-    outflows = [0.0] * (H + 1)  # outflows[t]: aporte no fim do mes t (t=0 nulo)
-    for idx, prazo in enumerate(prazos):
-        for t in range(1, prazo + 1):
-            outflows[t] += p_meses[idx]
-    outflows[H] += 0.0  # garante posicao
+    # Matriz de fluxos (n_ativos x H+1)
+    P = matrix.construir_matriz_fluxos(indicadores, H)
+    outflows = P.sum(axis=0)  # vetor 1D: soma ao longo dos ativos
 
-    total_aportado = a_tot + sum(outflows[1:])
+    total_aportado = a_tot + float(outflows[1:].sum())
 
-    # Fluxo agregado: t=0 -a_tot; meses 1..H-1 aportes; mes H resgate liquido.
+    # Fluxo agregado para TIR
     fluxo = [-a_tot]
     for t in range(1, H):
         fluxo.append(-outflows[t])
     fluxo.append(ml_h - outflows[H])
 
-    vpl = -a_tot
-    for t in range(1, H + 1):
-        vpl += -outflows[t] / (1.0 + i_tma) ** t
-    vpl += ml_h / (1.0 + i_tma) ** H
+    # VPL via produto escalar (dot product)
+    vpl = matrix.vpl_carteira(outflows, ml_h, a_tot, tma_anual, H)
 
     if a_tot > 0.0 or any(o > 0 for o in outflows):
         tir_mensal = mf.tir_de_fluxo(fluxo)
@@ -267,7 +266,7 @@ def calcular_carteira(
 
     return IndicadoresCarteira(
         capital_inicial=a_tot,
-        aporte_mensal_total=sum(o for o in outflows[1:]),
+        aporte_mensal_total=float(outflows[1:].sum()),
         capital_aplicado=total_aportado,
         reserva=reserva,
         montante_liquido=ml_h,
@@ -308,11 +307,8 @@ def serie_patrimonio(
     proj_est = [_projecao_ate(i.projecao, H, _taxa_mensal_do_indicador(i)) for i in indicadores]
 
     a_tot = sum(i.aporte_inicial for i in indicadores)
-    outflows = [0.0] * (H + 1)
-    for ind in indicadores:
-        prazo = len(ind.projecao) - 1
-        for t in range(1, prazo + 1):
-            outflows[t] += ind.aporte_mensal
+    P = matrix.construir_matriz_fluxos(indicadores, H)
+    outflows = P.sum(axis=0)
 
     bal_tma = a_tot
     pts = []

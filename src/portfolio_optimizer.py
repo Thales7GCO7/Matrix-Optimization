@@ -3,7 +3,7 @@
 Como as funcoes de retorno liquido sao lineares em cada aporte (a renda
 real e proporcional ao capital), o problema de maximizar o patrimonio
 liquido final e um problema de programacao linear com limites, cuja
-solucao otima e obtida por selecao gulosa: aplicar primeiro nos ativos
+solucao otima e obtida por selecao otimizada: aplicar primeiro nos ativos
 de maior retorno liquido anualizado, respeitando limites minimos e
 maximos. O capital que sobra (ou que nao atinge a TMA em nenhum ativo)
 fica na reserva que rende a propria TMA (custo de oportunidade).
@@ -12,9 +12,12 @@ fica na reserva que rende a propria TMA (custo de oportunidade).
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+import numpy as np
+
 from . import instruments
 from . import performance
 from . import math_finance as mf
+from . import matrix
 
 
 def _criar_reserva(tma_anual: float):
@@ -146,10 +149,10 @@ class PortfolioOptimizer:
 
     @staticmethod
     def _ordenar_por_taxa_liq(ativos: List[instruments.Ativo]) -> List[instruments.Ativo]:
-        """Ordem decrescente de retorno liquido anualizado."""
-        return sorted(
-            ativos, key=lambda a: instruments.taxa_liquida_anualizada(a), reverse=True
-        )
+        """Ordem decrescente de retorno liquido anualizado (versao vetorizada)."""
+        taxas = matrix.taxas_liquidas_vetor(ativos)
+        ordem = np.argsort(-taxas)
+        return [ativos[i] for i in ordem]
 
     @staticmethod
     def _alocar(
@@ -158,30 +161,30 @@ class PortfolioOptimizer:
         min_fn,
         max_fn,
     ) -> Dict[instruments.Ativo, float]:
-        """Alocacao otima com limites minimos e maximos.
+        """Alocacao otima com limites minimos e maximos (versao vetorizada).
 
         1. Garante o minimo de cada ativo (reserva obrigatoria de diversificacao).
         2. Distribui o restante por eficiencia (guloso): primeiro nos ativos
            de maior taxa liquida, ate o limite maximo de cada um.
         """
-        aloc: Dict[instruments.Ativo, float] = {}
-        for ativo in ordem:
-            minimo = min_fn(ativo) or 0.0
-            maximo = max_fn(ativo)
-            if maximo is not None and maximo <= 0.0:
-                continue
-            aloc[ativo] = minimo
+        n = len(ordem)
+        taxas = np.array([instruments.taxa_liquida_anualizada(a) for a in ordem])
+        mins = np.array([min_fn(a) or 0.0 for a in ordem])
+        raw_maxs = [max_fn(a) for a in ordem]
+        # Preserva semantica original: ativo com max <= 0 e ignorado (nem o minimo leva).
+        ativos_validos = np.array([not (m is not None and m <= 0.0) for m in raw_maxs])
+        mins = np.where(ativos_validos, mins, 0.0)
+        maxs = np.array([m if m is not None else np.inf for m in raw_maxs])
+        maxs = np.where(ativos_validos, maxs, 0.0)
 
-        restante = float(capital) - sum(aloc.values())
-        for ativo in ordem:
-            if restante <= 1e-9:
-                break
-            minimo = min_fn(ativo) or 0.0
-            maximo = max_fn(ativo)
-            limite_extra = float("inf") if maximo is None else maximo - minimo
-            if limite_extra <= 0.0:
+        aloc_vetor = matrix.alocar_vetorizada(capital, taxas, mins, maxs)
+
+        aloc = {}
+        for i, ativo in enumerate(ordem):
+            if not ativos_validos[i]:
                 continue
-            extra = min(limite_extra, restante)
-            aloc[ativo] += extra
-            restante -= extra
+            if aloc_vetor[i] > 1e-9:
+                aloc[ativo] = float(aloc_vetor[i])
+            elif mins[i] > 0:
+                aloc[ativo] = float(mins[i])
         return aloc

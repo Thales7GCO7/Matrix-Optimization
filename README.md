@@ -12,7 +12,7 @@ distribuir o dinheiro entre ativos com diferentes características para maximiza
 líquido final** (após imposto e taxas administrativas).
 
 Matematicamente é um problema de programação linear com limites, pois a renda real é
-**proporcional ao capital**. A solução ótima é obtida por **seleção gulosa**: aplica-se primeiro
+**proporcional ao capital**. A solução ótima é obtida por **seleção otimizada**: aplica-se primeiro
 nos ativos de maior **retorno líquido anualizado** (após deduções), respeitando os limites mínimo
 e máximo de cada ativo. O capital que sobra, ou que não alcança a TMA, fica em uma **reserva** que
 rende exatamente a taxa mínima.
