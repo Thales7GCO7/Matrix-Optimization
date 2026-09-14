@@ -88,6 +88,34 @@ Na página, configure o cenário (capital, TMA e recursos mensais), edite a list
 carregue a carteira exemplo) e clique em **Otimizar alocação**. Os resultados chegam por
 `POST /api/otimizar`; os gráficos são gerados no servidor (matplotlib) como PNG embutido no JSON.
 
+## Capturas de tela
+
+### Cenário e Taxa mínima de atratividade (TMA)
+
+<img width="1343" height="399" alt="Cenário e TMA" src="https://github.com/user-attachments/assets/2a5a1383-dd2f-434d-b950-983723221e87" />
+
+### Ativos — exemplo: CDB 13% a.a. (nominal, capitalização mensal)
+
+<img width="1051" height="487" alt="Ativos — CDB 13% a.a." src="https://github.com/user-attachments/assets/5fba7a3d-3420-4bac-a28a-eecc32d814ef" />
+
+### Exemplo: Tesouro SELIC (IR tabela)
+
+<img width="1063" height="353" alt="Tesouro SELIC (IR tabela)" src="https://github.com/user-attachments/assets/6c816376-662e-49ed-ad94-87cafbd923ea" />
+
+### Exemplo: LCI isenta 9,5% a.a.
+
+<img width="1062" height="346" alt="LCI isenta 9,5% a.a." src="https://github.com/user-attachments/assets/8a560d7a-6269-411d-a06e-794cb4b05552" />
+
+### Exemplo: Fundo RF (taxa adm. 1,5% a.a.)
+
+<img width="1068" height="376" alt="Fundo RF (taxa adm. 1,5% a.a.)" src="https://github.com/user-attachments/assets/bc38357f-c34d-4e50-b31c-3a6fe8a4f544" />
+
+## Demonstração
+
+![Demonstração do Otimizador de Investimentos](/videos/demo.mp4)
+
+> 21,7 MB. Se não carregar, veja `videos/demo.mp4` no repositório.
+
 ## API
 
 | Rota | Método | Descrição |
@@ -118,6 +146,8 @@ Erros de negócio e de validação retornam `422` com `{"erro": ...}`.
 matrix-optimization/
 ├── server.py                      # API FastAPI (GET /, /api/exemplos, POST /api/otimizar)
 ├── requirements.txt              # Dependências
+├── videos/
+│   └── demo.mp4                  # Demonstração da página (21,7 MB)
 ├── src/
 │   ├── math_finance.py           # Conversão de taxas, capitalização, séries, TIR, TMA
 │   ├── tax.py                    # Impostos (fixo/tabela IR) e taxas administrativas
