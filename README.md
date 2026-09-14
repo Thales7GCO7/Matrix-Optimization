@@ -114,7 +114,7 @@ carregue a carteira exemplo) e clique em **Otimizar alocação**. Os resultados 
 
 ![Demonstração do Otimizador de Investimentos](/videos/demo.mp4)
 
-> 21,7 MB. Se não carregar, veja `videos/demo.mp4` no repositório.
+> 3,1 MB (comprimido: 1280×720, H.264). Se não carregar, veja `videos/demo.mp4` no repositório.
 
 ## API
 
@@ -147,7 +147,7 @@ matrix-optimization/
 ├── server.py                      # API FastAPI (GET /, /api/exemplos, POST /api/otimizar)
 ├── requirements.txt              # Dependências
 ├── videos/
-│   └── demo.mp4                  # Demonstração da página (21,7 MB)
+│   └── demo.mp4                  # Demonstração da página (3,1 MB, 1280×720)
 ├── src/
 │   ├── math_finance.py           # Conversão de taxas, capitalização, séries, TIR, TMA
 │   ├── tax.py                    # Impostos (fixo/tabela IR) e taxas administrativas
