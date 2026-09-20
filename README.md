@@ -1,186 +1,209 @@
-# Otimizador de Investimentos
+# Investment Optimizer
 
-Aplicação web (FastAPI + página HTML) que **aloca capital entre ativos de retorno fixo**
-considerando taxas por período, imposto de renda, taxas administrativas e o **custo de
-oportunidade** (TMA), calculando índices de desempenho como ROI, VPL, TIR, payback e índice de
-lucratividade.
+A web app (FastAPI + HTML page) that **allocates capital across fixed-return
+assets** accounting for per-period rates, income tax, management fees, and the
+**opportunity cost** (hurdle rate), computing performance metrics such as ROI,
+NPV, IRR, payback, and the profitability index.
 
-## Visão geral
+## Overview
 
-O problema: dado um **capital disponível** hoje e (opcionalmente) uma **disponibilidade mensal**,
-distribuir o dinheiro entre ativos com diferentes características para maximizar o **patrimônio
-líquido final** (após imposto e taxas administrativas).
+The problem: given **available capital** today and (optionally) a **monthly
+budget**, distribute the money across assets with different traits to maximize
+**final net wealth** (after tax and management fees).
 
-Matematicamente é um problema de programação linear com limites, pois a renda real é
-**proporcional ao capital**. A solução ótima é obtida por **seleção otimizada**: aplica-se primeiro
-nos ativos de maior **retorno líquido anualizado** (após deduções), respeitando os limites mínimo
-e máximo de cada ativo. O capital que sobra, ou que não alcança a TMA, fica em uma **reserva** que
-rende exatamente a taxa mínima.
+Mathematically it is a bounded linear-programming problem, since actual income
+is **proportional to capital**. The optimal solution is found by **greedy
+selection**: invest first in the assets with the highest **annualized net
+return** (after deductions), honoring each asset's minimum and maximum limits.
+Leftover capital, or capital no asset can place above the hurdle rate, stays in
+a **reserve** earning exactly the minimum rate.
 
 ```
-max Σ Lᵢ(xᵢ)          Lᵢ = patrimônio líquido final do ativo i
-s.a. Σ xᵢ ≤ B         capital inicial disponível
-     Σ pᵢ ≤ B_mensal  aportes mensais disponíveis
-     ℓᵢ ≤ xᵢ ≤ uᵢ     limites por ativo
+max Σ Lᵢ(xᵢ)          Lᵢ = final net wealth of asset i
+s.t. Σ xᵢ ≤ B         available initial capital
+     Σ pᵢ ≤ B_monthly  available monthly deposits
+     ℓᵢ ≤ xᵢ ≤ uᵢ     per-asset limits
 ```
 
-## Caracterização dos ativos
+## Asset model
 
-Cada ativo é definido por:
+Each asset is defined by:
 
-- **Nome** e capital **mínimo/máximo** (inicial) e **máximo mensal**;
-- **Taxa** do período com **base**:
-  - *Efetiva*: taxa do próprio período (composta). Ex.: 1% a.m. ≈ 12,68% a.a.
-  - *Nominal*: taxa anual dividida pelo período. Ex.: 13% a.a. nominal com capitalização mensal
-    usa 13%/12 = 1,083% a.m.
-- **Período de capitalização**: anual, semestral, trimestral, bimestral, mensal (semanal, diária);
-- **Prazo até o resgate** (meses);
-- **Imposto** sobre o rendimento: isento, percentual fixo ou **tabela regressiva do IR** de renda
-  fixa brasileira (22,5% até 180 dias; 20% até 360; 17,5% até 720; 15% acima);
-- **Taxa administrativa**: sobre o aporte, **% a.a. sobre o patrimônio** (taxa de administração de
-  fundos) ou sobre o rendimento (performance fee).
+- **Name** and **min/max** (initial) capital plus a **monthly max**;
+- **Rate** for the period with a **basis**:
+  - *Effective*: the rate of the period itself (compounded). E.g.: 1% monthly ≈ 12.68% p.a.
+  - *Nominal*: annual rate split across the period. E.g.: 13% p.a. nominal with monthly
+    compounding uses 13%/12 = 1.083% per month.
+- **Compounding period**: annual, semiannual, quarterly, bimonthly, monthly (weekly, daily);
+- **Term to redemption** (months);
+- **Income tax** on gains (generic rate entered per asset): `exempt` (e.g. US
+  municipal bonds, Roth IRA qualified withdrawals) or `fixed` flat percent
+  (e.g. federal capital-gains rates: short-term marginal bracket or
+  long-term 0%/15%/20%);
+- **Management fee**: on deposits, **% p.a. of assets** (fund management fee),
+  or on gains (performance fee).
 
-Há dois fluxos de aporte, por ativo e combináveis:
+There are two deposit flows, combinable per asset:
 
-- **Aporte inicial único** — alocação do capital disponível hoje;
-- **Aporte mensal recorrente** (postecipado) — série uniforme até o resgate.
+- **Lump-sum initial deposit** — allocation of today's available capital;
+- **Recurring monthly deposit** (in arrears) — level series to redemption.
 
-## Taxa mínima de atratividade (TMA)
+## Hurdle rate (minimum attractive rate)
 
-A TMA é o **custo de oportunidade** do capital. Pode ser:
+The hurdle rate is the **opportunity cost** of capital. It can be:
 
-- informada manualmente; ou
-- calculada como **juro real**: `TMA = (1 + SELIC)/(1 + IPCA) - 1`.
+- entered manually; or
+- computed as a **real rate**: `hurdle = (1 + risk_free)/(1 + inflation) - 1`,
+  defaulting to Fed funds + CPI editable benchmarks.
 
-Ela é usada como:
-- taxa de desconto do **VPL**;
-- benchmark do **alfa** (excesso de retorno sobre a TMA);
-- taxa da **reserva** (o que sobra rende a TMA);
-- base do cálculo de **payback descontado** e da comparação "lucro vs. TMA".
+It is used as:
 
-## Índices de desempenho
+- the **NPV** discount rate;
+- the **alpha** benchmark (excess return over the hurdle);
+- the **reserve** rate (leftovers earn the hurdle);
+- the basis for **discounted payback** and the "profit vs. hurdle" comparison.
 
-Calculados **por ativo** e **para a carteira**:
+## Performance metrics
 
-| Índice | Definição |
+Computed **per asset** and **for the portfolio**:
+
+| Metric | Definition |
 |--------|-----------|
-| **ROI** | `lucro líquido / capital aplicado` (retorno do período) |
-| **ROI anualizado** | retorno equivalente por ano (CAGR/TIR), comparável entre prazos |
-| **Retorno real** | retorno anual líquido descontado da inflação (IPCA) |
-| **VPL** | valor presente do fluxo descontado na TMA (`> 0` agrega valor) |
-| **TIR** | taxa por ano que zera o VPL (`>` TMA é desejável) |
-| **Payback** | mês em que o resgate recupera o capital (simples e descontado) |
-| **IL** | `VPL / capital + 1` (`> 1` paga o custo de oportunidade) |
-| **Alfa** | `ROI anual - TMA` (excesso sobre o custo de oportunidade) |
-| **Lucro na TMA** | o que o mesmo fluxo de aportes renderia na taxa mínima |
-| **Ganho adicional** | `lucro da carteira - lucro na TMA` |
+| **ROI** | `net profit / invested capital` (period return) |
+| **Annualized ROI** | equivalent per-year return (CAGR/IRR), comparable across terms |
+| **Real return** | net annual return discounted by inflation (CPI) |
+| **NPV** | present value of the cash flow discounted at the hurdle (`> 0` adds value) |
+| **IRR** | per-year rate that zeroes the NPV (`>` hurdle is desirable) |
+| **Payback** | month when redemption recovers the capital (simple and discounted) |
+| **PI** | `NPV / capital + 1` (`> 1` pays the opportunity cost) |
+| **Alpha** | `annual ROI - hurdle` (excess over the opportunity cost) |
+| **Profit at hurdle** | what the same deposit flow would earn at the minimum rate |
+| **Excess profit** | `portfolio profit - profit at hurdle` |
 
-## Execução
+## Run
 
 ```bash
 pip install -r requirements.txt
 uvicorn server:app --reload
 ```
 
-(ou `python server.py`, que abre o navegador em `http://localhost:8000`).
+(or `python server.py`, which opens the browser at `http://localhost:8000`).
 
-Na página, configure o cenário (capital, TMA e recursos mensais), edite a lista de ativos (ou
-carregue a carteira exemplo) e clique em **Otimizar alocação**. Os resultados chegam por
-`POST /api/otimizar`; os gráficos são gerados no servidor (matplotlib) como PNG embutido no JSON.
+On the page, configure the scenario (capital, hurdle, monthly budget), edit the
+asset list (or load the sample portfolio), and click **Optimize allocation**.
+Results arrive via `POST /api/optimize`; charts are rendered server-side
+(matplotlib) as PNGs embedded in the JSON.
 
-## Capturas de tela
+## Screenshots
 
-### Cenário e Taxa mínima de atratividade (TMA)
+> Screenshots below show earlier versions; the UI is now a two-page US-market
+> app (dashboard + assets page). They remain valid for layout reference.
 
-<img width="1343" height="399" alt="Cenário e TMA" src="https://github.com/user-attachments/assets/2a5a1383-dd2f-434d-b950-983723221e87" />
+### Scenario and hurdle rate
 
-### Ativos — exemplo: CDB 13% a.a. (nominal, capitalização mensal)
+<img width="1343" height="399" alt="Scenario and hurdle" src="https://github.com/user-attachments/assets/2a5a1383-dd2f-434d-b950-983723221e87" />
 
-<img width="1051" height="487" alt="Ativos — CDB 13% a.a." src="https://github.com/user-attachments/assets/5fba7a3d-3420-4bac-a28a-eecc32d814ef" />
+### Assets — example: bank CD 13% p.a. (nominal, monthly compounding)
 
-### Exemplo: Tesouro SELIC (IR tabela)
+<img width="1051" height="487" alt="Assets — bank CD 13% p.a." src="https://github.com/user-attachments/assets/5fba7a3d-3420-4bac-a28a-eecc32d814ef" />
 
-<img width="1063" height="353" alt="Tesouro SELIC (IR tabela)" src="https://github.com/user-attachments/assets/6c816376-662e-49ed-ad94-87cafbd923ea" />
+### Example: govt bond SELIC (tax table)
 
-### Exemplo: LCI isenta 9,5% a.a.
+<img width="1063" height="353" alt="Govt bond SELIC (tax table)" src="https://github.com/user-attachments/assets/6c816376-662e-49ed-ad94-87cafbd923ea" />
 
-<img width="1062" height="346" alt="LCI isenta 9,5% a.a." src="https://github.com/user-attachments/assets/8a560d7a-6269-411d-a06e-794cb4b05552" />
+### Example: exempt bond 9.5% p.a.
 
-### Exemplo: Fundo RF (taxa adm. 1,5% a.a.)
+<img width="1062" height="346" alt="Exempt bond 9.5% p.a." src="https://github.com/user-attachments/assets/8a560d7a-6269-411d-a06e-794cb4b05552" />
 
-<img width="1068" height="376" alt="Fundo RF (taxa adm. 1,5% a.a.)" src="https://github.com/user-attachments/assets/bc38357f-c34d-4e50-b31c-3a6fe8a4f544" />
+### Example: bond fund (1.5% p.a. mgmt fee)
 
-## Demonstração
+<img width="1068" height="376" alt="Bond fund (1.5% p.a. mgmt fee)" src="https://github.com/user-attachments/assets/bc38357f-c34d-4e50-b31c-3a6fe8a4f544" />
 
-![Demonstração do Otimizador de Investimentos](/videos/demo.mp4)
+## Demo
 
-> 3,1 MB (comprimido: 1280×720, H.264). Se não carregar, veja `videos/demo.mp4` no repositório.
+![Investment Optimizer demo](/videos/demo.mp4)
+
+> 3.1 MB (compressed: 1280×720, H.264). If it does not load, see `videos/demo.mp4` in the repo.
 
 ## API
 
-| Rota | Método | Descrição |
+| Route | Method | Description |
 |------|--------|-----------|
-| `/` | GET | Página HTML (front-end único) |
-| `/api/exemplos` | GET | Carteira de exemplo para o formulário (`ativos[]`) |
-| `/api/otimizar` | POST | Recebe `{capital, usar_mensal, aporte_mensal, tma_modo, selic_pct, ipca_pct, tma_manual_pct, inflacao_pct, ativos[]}` e devolve alocação, índices por ativo, carteira e gráficos |
+| `/` | GET | Dashboard (main front-end page: KPIs, pie/bar/line charts, tables) |
+| `/assets` | GET | Asset data entry + scenario page (runs the optimization) |
+| `/api/examples` | GET | Sample portfolio for the form (`assets[]`) |
+| `/api/optimize` | POST | Receives `{capital, use_monthly, monthly_contrib, hurdle_mode, risk_free_pct, inflation_pct, hurdle_manual_pct, assets[]}` and returns allocation, per-asset metrics, portfolio, and charts |
 
-O payload de ativo espelha o formulário: `nome`, `taxa_pct`, `periodo`, `base`, `prazo_meses`,
-`imposto_modo`/`imposto_pct`, `admin_modo`/`admin_pct`, `inicial_min`/`inicial_max`,
-`usa_mensal`/`mensal_max`. Documentação interativa em `/docs` (OpenAPI).
+The asset payload mirrors the form: `name`, `rate_pct`, `period`, `basis`,
+`term_months`, `tax_mode`/`tax_pct`, `fee_mode`/`fee_pct`,
+`initial_min`/`initial_max`, `uses_monthly`/`monthly_max`. Interactive docs at
+`/docs` (OpenAPI).
 
-`POST /api/otimizar` responde:
+`POST /api/optimize` responds with:
 
-- **carteira**: agregados por ativo (`montante_liquido`, `roi`, `vpl`, `tir_anual`, `payback`,
-  `il`, `alfa`) e totais da carteira (`capital_aplicado`, `reserva`, `roi`, `roi_anualizado`,
-  `vpl`, `lucro_tma`);
-- **indicadores**: linha por ativo (inclui a reserva da TMA) com a projeção mensal;
-- **uso**: capital inicial aplicado, aportes mensais, reserva e ganho adicional vs. TMA;
-- **graficos**: 3 imagens PNG em base64 (`alocacao`, `patrimonio`, `lucro_tma`);
-- **avisos**: alertas de validação (ex.: sem capital, mínimos excedem o capital).
+- **portfolio**: per-asset aggregates (`net_amount`, `roi`, `npv`, `annual_irr`,
+  `payback`, `profitability_index`, `alpha`) and portfolio totals
+  (`invested_capital`, `reserve`, `roi`, `annualized_roi`, `npv`,
+  `hurdle_profit`);
+- **metrics**: one row per asset (includes the hurdle reserve) with the monthly
+  projection;
+- **usage**: invested initial capital, monthly deposits, reserve, and excess
+  profit vs. hurdle;
+- **charts**: 5 base64 PNG images (`allocation`, `allocation_pie`, `equity`, `profit_vs_hurdle`, `lp_max`);
+- **lp_model**: 2-asset LP projection — objective (`max Z = c1*x1 + c2*x2`),
+  per-asset profit formulas, constraint lines, vertices with Z values,
+  tangent line, optimum, actual allocation, and resolution steps;
+- **warnings**: validation alerts (e.g.: no capital, minimums exceed capital).
 
-Erros de negócio e de validação retornam `422` com `{"erro": ...}`.
+Business and validation errors return `422` with `{"error": ...}`.
 
-## Estrutura do projeto
+## Project layout
 
 ```
 matrix-optimization/
-├── server.py                      # API FastAPI (GET /, /api/exemplos, POST /api/otimizar)
-├── requirements.txt              # Dependências
+├── server.py                      # FastAPI API (GET /, /api/examples, POST /api/optimize)
+├── requirements.txt              # Dependencies
 ├── videos/
-│   └── demo.mp4                  # Demonstração da página (3,1 MB, 1280×720)
+│   └── demo.mp4                  # Page demo (3.1 MB, 1280×720)
 ├── src/
-│   ├── math_finance.py           # Conversão de taxas, capitalização, séries, TIR, TMA
-│   ├── tax.py                    # Impostos (fixo/tabela IR) e taxas administrativas
-│   ├── instruments.py            # Modelo de ativo (bruto → líquido) e projeção mensal
-│   ├── performance.py            # Índices: ROI, VPL, TIR, payback, IL, alfa
-│   └── portfolio_optimizer.py    # Alocação ótima (guloso) + reserva na TMA
+│   ├── math_finance.py           # Rate conversion, compounding, series, IRR, hurdle
+│   ├── tax.py                    # Generic net logic (compute_net_amount/explain) + taxes/fees
+│   ├── instruments.py            # Asset model (gross → net) and monthly projection
+│   ├── performance.py            # Metrics: ROI, NPV, IRR, payback, PI, alpha
+│   ├── portfolio_optimizer.py    # Optimal allocation (greedy) + hurdle reserve
+│   ├── lp_geometry.py            # 2-asset LP plane (constraints, vertices, optimum, tangent)
+│   └── investment_optimizer.py   # Generic nonlinear allocation (scipy SLSQP)
 ├── web/
-│   ├── __init__.py               # Pacote vazio
-│   ├── schema.py                 # Contrato da API (pydantic) e carteira de exemplo
-│   ├── graficos.py               # Gráficos matplotlib → PNG base64
-│   └── static/index.html         # Front-end (HTML/JS puro, sem CDN)
+│   ├── __init__.py               # Empty package
+│   ├── schema.py                 # API contract (pydantic) and sample portfolio
+│   ├── charts.py                 # Matplotlib charts → base64 PNG
+│   └── static/                   # Front-end (plain HTML/JS, no CDN):
+│       ├── index.html            # Dashboard (KPIs, pie/bar/line charts, tables)
+│       ├── assets.html           # Asset data entry + scenario form
+│       └── app.js                # Shared helpers, API calls, result rendering
 └── tests/
-    ├── test_math_finance.py      # Taxas, capitalização, séries, TIR, TMA
-    ├── test_tax.py               # Imposto e taxas administrativas
-    ├── test_performance.py       # Indicadores por ativo e carteira
-    ├── test_optimizer.py         # Alocação com limites, reserva e aportes mensais
-    └── test_server.py            # API: exemplos, otimização e erros (422)
+    ├── test_math_finance.py      # Rates, compounding, series, IRR, hurdle
+    ├── test_tax.py               # Income tax and management fees
+    ├── test_lp_geometry.py       # LP plane: vertices, optimum, tangent, chart
+    ├── test_performance.py       # Per-asset and portfolio metrics
+    ├── test_optimizer.py         # Allocation with limits, reserve, monthly deposits
+    └── test_server.py            # API: examples, optimization, and errors (422)
 ```
 
-## Testes
+## Tests
 
 ```bash
 python -m unittest discover tests -v
 ```
 
-Suíte com 45 testes cobrindo o núcleo de cálculo (taxas, impostos, séries, TIR, TMA),
-a alocação (limites, reserva, aportes mensais) e a camada de API via `TestClient`
-(carteira exemplo, TMA manual e erros `422`).
+Suite with 71 tests covering the calculation core (rates, taxes, series, IRR,
+hurdle), the LP plane (vertices, optimum, tangent, chart), the allocation (limits, reserve, monthly deposits), and the API layer
+via `TestClient` (sample portfolio, manual hurdle, and `422` errors).
 
-## Tecnologias
+## Tech stack
 
 - Python 3.12
-- NumPy / SciPy (`brentq` para TIR)
-- FastAPI + Uvicorn (servidor HTTP)
-- Matplotlib (gráficos em PNG)
-- Front-end em HTML/CSS/JS puro (sem framework, sem CDN)
+- NumPy / SciPy (`brentq` for IRR)
+- FastAPI + Uvicorn (HTTP server)
+- Matplotlib (PNG charts)
+- Plain HTML/CSS/JS front-end (no framework, no CDN)

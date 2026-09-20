@@ -1,12 +1,12 @@
-"""Alocacao otima de capital entre ativos.
+"""Optimal capital allocation across assets.
 
-Como as funcoes de retorno liquido sao lineares em cada aporte (a renda
-real e proporcional ao capital), o problema de maximizar o patrimonio
-liquido final e um problema de programacao linear com limites, cuja
-solucao otima e obtida por selecao otimizada: aplicar primeiro nos ativos
-de maior retorno liquido anualizado, respeitando limites minimos e
-maximos. O capital que sobra (ou que nao atinge a TMA em nenhum ativo)
-fica na reserva que rende a propria TMA (custo de oportunidade).
+Since net-return functions are linear in each deposit (actual income is
+proportional to capital), the problem of maximizing final net wealth is
+a bounded linear-programming problem whose optimal solution is found by
+greedy selection: invest first in the assets with the highest annualized
+net return, honoring per-asset minimum and maximum limits. Leftover
+capital (or capital no asset can place above the hurdle rate) stays in a
+reserve earning the hurdle rate itself (opportunity cost).
 """
 
 from dataclasses import dataclass, field
@@ -16,175 +16,177 @@ import numpy as np
 
 from . import instruments
 from . import performance
-from . import math_finance as mf
 from . import matrix
 
 
-def _criar_reserva(tma_anual: float):
-    """Ativo virtual Reserva/TMA: rende a taxa minima, sem imposto/taxa."""
-    return instruments.Ativo(
-        nome="Reserva (TMA)",
-        taxa=max(tma_anual, 0.0),
-        periodo="anual",
-        base="efetiva",
-        prazo_meses=12,
-        imposto_modo="isento",
-        admin_modo="nenhuma",
+def _create_reserve(hurdle_annual: float):
+    """Virtual reserve asset: earns the hurdle rate, no tax/fees."""
+    return instruments.Asset(
+        name="Reserve (hurdle)",
+        rate=max(hurdle_annual, 0.0),
+        period="annual",
+        basis="effective",
+        term_months=12,
+        tax_mode="exempt",
+        fee_mode="none",
     )
 
 
 @dataclass
-class Alocacao:
-    ativo: instruments.Ativo
-    aporte_inicial: float
-    aporte_mensal: float
-    reserva: bool = False
+class Allocation:
+    asset: instruments.Asset
+    initial_contrib: float
+    monthly_contrib: float
+    is_reserve: bool = False
 
 
 @dataclass
-class ResultadoOtimizacao:
-    capital_inicial: float
-    aporte_mensal_disponivel: float
-    tma_anual: float
-    inflacao_anual: float
-    alocacoes: List[Alocacao] = field(default_factory=list)
-    indicadores: List[performance.IndicadoresAtivo] = field(default_factory=list)
-    carteira: Optional[performance.IndicadoresCarteira] = None
-    erro: str = ""
+class OptimizationResult:
+    initial_capital: float
+    available_monthly: float
+    hurdle_annual: float
+    inflation_annual: float
+    allocations: List[Allocation] = field(default_factory=list)
+    metrics: List[performance.AssetMetrics] = field(default_factory=list)
+    portfolio: Optional[performance.PortfolioMetrics] = None
+    error: str = ""
+    assets: List[instruments.Asset] = field(default_factory=list)
 
 
 class PortfolioOptimizer:
     def __init__(
         self,
-        ativos: List[instruments.Ativo],
-        capital_inicial: float,
-        tma_anual: float,
-        inflacao_anual: float,
-        aporte_mensal: float = 0.0,
-        usar_aporte_mensal: bool = False,
+        assets: List[instruments.Asset],
+        initial_capital: float,
+        hurdle_annual: float,
+        inflation_annual: float,
+        monthly_contrib: float = 0.0,
+        use_monthly: bool = False,
     ):
-        self.ativos = list(ativos)
-        self.capital_inicial = float(capital_inicial)
-        self.tma_anual = float(tma_anual)
-        self.inflacao_anual = float(inflacao_anual)
-        self.aporte_mensal = float(aporte_mensal) if usar_aporte_mensal else 0.0
-        self.usar_aporte_mensal = bool(usar_aporte_mensal)
+        self.assets = list(assets)
+        self.initial_capital = float(initial_capital)
+        self.hurdle_annual = float(hurdle_annual)
+        self.inflation_annual = float(inflation_annual)
+        self.monthly_contrib = float(monthly_contrib) if use_monthly else 0.0
+        self.use_monthly = bool(use_monthly)
 
-    def resolver(self) -> ResultadoOtimizacao:
-        res = ResultadoOtimizacao(
-            capital_inicial=self.capital_inicial,
-            aporte_mensal_disponivel=self.aporte_mensal,
-            tma_anual=self.tma_anual,
-            inflacao_anual=self.inflacao_anual,
+    def solve(self) -> OptimizationResult:
+        res = OptimizationResult(
+            initial_capital=self.initial_capital,
+            available_monthly=self.monthly_contrib,
+            hurdle_annual=self.hurdle_annual,
+            inflation_annual=self.inflation_annual,
         )
         try:
-            self._validar()
+            self._validate()
         except ValueError as exc:
-            res.erro = str(exc)
+            res.error = str(exc)
             return res
 
-        reserva = _criar_reserva(self.tma_anual)
+        reserve = _create_reserve(self.hurdle_annual)
 
-        ordem_inicial = self._ordenar_por_taxa_liq(self.ativos + [reserva])
-        ordem_mensal = self._ordenar_por_taxa_liq(
-            [i for i in self.ativos if i.usa_aporte_mensal] + [reserva]
+        initial_order = self._rank_by_net_return(self.assets + [reserve])
+        monthly_order = self._rank_by_net_return(
+            [i for i in self.assets if i.uses_monthly] + [reserve]
         )
 
-        inicial = self._alocar(
-            ordem_inicial,
-            self.capital_inicial,
-            min_fn=lambda a: a.aporte_inicial_min,
-            max_fn=lambda a: a.aporte_inicial_max if a.aporte_inicial_max is not None else float("inf"),
+        initial = self._allocate(
+            initial_order,
+            self.initial_capital,
+            min_fn=lambda a: a.initial_min,
+            max_fn=lambda a: a.initial_max if a.initial_max is not None else float("inf"),
         )
-        mensal = {}
-        if self.usar_aporte_mensal and self.aporte_mensal > 0.0:
-            mensal = self._alocar(
-                ordem_mensal,
-                self.aporte_mensal,
+        monthly = {}
+        if self.use_monthly and self.monthly_contrib > 0.0:
+            monthly = self._allocate(
+                monthly_order,
+                self.monthly_contrib,
                 min_fn=lambda a: 0.0,
-                max_fn=lambda a: a.aporte_mensal_max if a.aporte_mensal_max is not None else float("inf"),
+                max_fn=lambda a: a.monthly_max if a.monthly_max is not None else float("inf"),
             )
 
-        # Junta alocacoes de cada ativo (inclui reserva em ambos os fluxos).
-        # Todos os ativos entram nos indicadores (mesmo com aporte zero), para
-        # evidenciar na tela quais nao receberam capital.
-        nomes = list(dict.fromkeys([a.nome for a in self.ativos] + [reserva.nome]))
-        mapa = {a.nome: a for a in self.ativos + [reserva]}
-        alocacoes: List[Alocacao] = []
-        indicadores: List[performance.IndicadoresAtivo] = []
-        for nome in nomes:
-            ativo = mapa[nome]
-            a_ini = inicial.get(ativo, 0.0)
-            p_men = mensal.get(ativo, 0.0)
-            eh_reserva = ativo is reserva
-            alocacoes.append(Alocacao(ativo, a_ini, p_men, reserva=eh_reserva))
-            indicadores.append(
-                performance.calcular_ativo(
-                    ativo, a_ini, p_men, self.tma_anual, self.inflacao_anual, reserva=eh_reserva
+        # Merge each asset's allocations (reserve included in both flows).
+        # Every asset appears in the metrics (even with zero deposits) to
+        # show on screen which ones received no capital.
+        names = list(dict.fromkeys([a.name for a in self.assets] + [reserve.name]))
+        by_name = {a.name: a for a in self.assets + [reserve]}
+        allocations: List[Allocation] = []
+        metrics: List[performance.AssetMetrics] = []
+        for name in names:
+            asset = by_name[name]
+            a_ini = initial.get(asset, 0.0)
+            p_mon = monthly.get(asset, 0.0)
+            is_reserve = asset is reserve
+            allocations.append(Allocation(asset, a_ini, p_mon, is_reserve=is_reserve))
+            metrics.append(
+                performance.compute_asset(
+                    asset, a_ini, p_mon, self.hurdle_annual, self.inflation_annual, is_reserve=is_reserve
                 )
             )
 
-        # Mantem na lista de alocacao apenas quem recebeu capital (uso nos graficos).
-        res.alocacoes = [a for a in alocacoes if a.aporte_inicial > 0 or a.aporte_mensal > 0]
-        res.indicadores = indicadores
-        res.carteira = performance.calcular_carteira(indicadores, self.tma_anual)
+        # Keep only funded assets in the allocation list (used by charts).
+        res.allocations = [a for a in allocations if a.initial_contrib > 0 or a.monthly_contrib > 0]
+        res.metrics = metrics
+        res.assets = [by_name[name] for name in names]
+        res.portfolio = performance.compute_portfolio(metrics, self.hurdle_annual)
         return res
 
-    def _validar(self):
-        for ativo in self.ativos:
-            if ativo.aporte_inicial_min is None:
+    def _validate(self):
+        for asset in self.assets:
+            if asset.initial_min is None:
                 continue
             if (
-                ativo.aporte_inicial_max is not None
-                and ativo.aporte_inicial_max < ativo.aporte_inicial_min
+                asset.initial_max is not None
+                and asset.initial_max < asset.initial_min
             ):
                 raise ValueError(
-                    f"Limite maximo menor que o minimo no ativo {ativo.nome!r}."
+                    f"Maximum limit below the minimum for asset {asset.name!r}."
                 )
-        soma_mins = sum(
-            a.aporte_inicial_min for a in self.ativos if a.aporte_inicial_min is not None
+        mins_total = sum(
+            a.initial_min for a in self.assets if a.initial_min is not None
         )
-        if soma_mins > self.capital_inicial:
-            raise ValueError("A soma dos aportes minimos excede o capital disponivel.")
+        if mins_total > self.initial_capital:
+            raise ValueError("The sum of minimum deposits exceeds the available capital.")
 
     @staticmethod
-    def _ordenar_por_taxa_liq(ativos: List[instruments.Ativo]) -> List[instruments.Ativo]:
-        """Ordem decrescente de retorno liquido anualizado (versao vetorizada)."""
-        taxas = matrix.taxas_liquidas_vetor(ativos)
-        ordem = np.argsort(-taxas)
-        return [ativos[i] for i in ordem]
+    def _rank_by_net_return(assets: List[instruments.Asset]) -> List[instruments.Asset]:
+        """Decreasing order of annualized net return (vectorized version)."""
+        rates = matrix.net_returns_vector(assets)
+        order = np.argsort(-rates)
+        return [assets[i] for i in order]
 
     @staticmethod
-    def _alocar(
-        ordem: List[instruments.Ativo],
+    def _allocate(
+        order: List[instruments.Asset],
         capital: float,
         min_fn,
         max_fn,
-    ) -> Dict[instruments.Ativo, float]:
-        """Alocacao otima com limites minimos e maximos (versao vetorizada).
+    ) -> Dict[instruments.Asset, float]:
+        """Optimal allocation with minimum and maximum limits (vectorized).
 
-        1. Garante o minimo de cada ativo (reserva obrigatoria de diversificacao).
-        2. Distribui o restante por eficiencia (guloso): primeiro nos ativos
-           de maior taxa liquida, ate o limite maximo de cada um.
+        1. Guarantee each asset's minimum (mandatory diversification reserve).
+        2. Distribute the remainder by efficiency (greedy): first to the
+           highest-net-rate assets, up to each one's maximum limit.
         """
-        n = len(ordem)
-        taxas = np.array([instruments.taxa_liquida_anualizada(a) for a in ordem])
-        mins = np.array([min_fn(a) or 0.0 for a in ordem])
-        raw_maxs = [max_fn(a) for a in ordem]
-        # Preserva semantica original: ativo com max <= 0 e ignorado (nem o minimo leva).
-        ativos_validos = np.array([not (m is not None and m <= 0.0) for m in raw_maxs])
-        mins = np.where(ativos_validos, mins, 0.0)
+        n = len(order)
+        rates = np.array([instruments.annualized_net_return(a) for a in order])
+        mins = np.array([min_fn(a) or 0.0 for a in order])
+        raw_maxs = [max_fn(a) for a in order]
+        # Preserve original semantics: an asset with max <= 0 is skipped
+        # (it does not even receive its minimum).
+        valid = np.array([not (m is not None and m <= 0.0) for m in raw_maxs])
+        mins = np.where(valid, mins, 0.0)
         maxs = np.array([m if m is not None else np.inf for m in raw_maxs])
-        maxs = np.where(ativos_validos, maxs, 0.0)
+        maxs = np.where(valid, maxs, 0.0)
 
-        aloc_vetor = matrix.alocar_vetorizada(capital, taxas, mins, maxs)
+        alloc_vector = matrix.vectorized_allocate(capital, rates, mins, maxs)
 
-        aloc = {}
-        for i, ativo in enumerate(ordem):
-            if not ativos_validos[i]:
+        alloc = {}
+        for i, asset in enumerate(order):
+            if not valid[i]:
                 continue
-            if aloc_vetor[i] > 1e-9:
-                aloc[ativo] = float(aloc_vetor[i])
+            if alloc_vector[i] > 1e-9:
+                alloc[asset] = float(alloc_vector[i])
             elif mins[i] > 0:
-                aloc[ativo] = float(mins[i])
-        return aloc
+                alloc[asset] = float(mins[i])
+        return alloc

@@ -1,181 +1,178 @@
-"""Testes das funcoes matriciais (validacao contra implementacoes escalares)."""
+"""Tests for the matrix helpers (validated against scalar implementations)."""
 
 import unittest
 import numpy as np
 
-from src.instruments import Ativo
-from src.performance import calcular_ativo, IndicadoresAtivo
+from src.instruments import Asset
+from src.performance import compute_asset, AssetMetrics
 from src import matrix
 from src import math_finance as mf
 from src import instruments
 
 
-def ativo_simples(nome, taxa, prazo=12, **extra) -> Ativo:
-    defaults = dict(taxa=taxa, prazo_meses=prazo, imposto_modo="isento", admin_modo="nenhuma")
+def simple_asset(name, rate, term=12, **extra) -> Asset:
+    defaults = dict(rate=rate, term_months=term, tax_mode="exempt", fee_mode="none")
     defaults.update(extra)
-    return Ativo(nome=nome, **defaults)
+    return Asset(name=name, **defaults)
 
 
-class TestTaxasLiquidasVetor(unittest.TestCase):
-    def test_bate_com_escalar(self):
-        ativos = [
-            ativo_simples("A", 0.10),
-            ativo_simples("B", 0.05),
-            ativo_simples("C", 0.12, imposto_modo="fixo", imposto_percentual=0.20),
+class TestNetReturnsVector(unittest.TestCase):
+    def test_matches_scalar(self):
+        assets = [
+            simple_asset("A", 0.10),
+            simple_asset("B", 0.05),
+            simple_asset("C", 0.12, tax_mode="fixed", tax_percent=0.20),
         ]
-        r_vec = matrix.taxas_liquidas_vetor(ativos)
-        for i, a in enumerate(ativos):
-            r_esc = instruments.taxa_liquida_anualizada(a)
-            self.assertAlmostEqual(r_vec[i], r_esc, places=10)
+        r_vec = matrix.net_returns_vector(assets)
+        for i, a in enumerate(assets):
+            r_scalar = instruments.annualized_net_return(a)
+            self.assertAlmostEqual(r_vec[i], r_scalar, places=10)
 
 
-class TestConstruirMatrizFluxos(unittest.TestCase):
-    def test_matriz_formato_correto(self):
-        a = calcular_ativo(ativo_simples("A", 0.10), 1000.0, 0.0, 0.05, 0.04)
-        b = calcular_ativo(ativo_simples("B", 0.06), 500.0, 100.0, 0.05, 0.04)
+class TestBuildCashflowMatrix(unittest.TestCase):
+    def test_matrix_shape(self):
+        a = compute_asset(simple_asset("A", 0.10), 1000.0, 0.0, 0.05, 0.04)
+        b = compute_asset(simple_asset("B", 0.06), 500.0, 100.0, 0.05, 0.04)
         inds = [a, b]
-        H = max(len(i.projecao) - 1 for i in inds)
-        P = matrix.construir_matriz_fluxos(inds, H)
+        H = max(len(i.projection) - 1 for i in inds)
+        P = matrix.build_cashflow_matrix(inds, H)
         self.assertEqual(P.shape, (2, H + 1))
         self.assertEqual(P[0, 0], 0.0)
         self.assertEqual(P[1, 0], 0.0)
 
-    def test_soma_eixo_zero_bate_com_loop(self):
-        a = calcular_ativo(ativo_simples("A", 0.10), 1000.0, 0.0, 0.05, 0.04)
-        b = calcular_ativo(ativo_simples("B", 0.06), 500.0, 100.0, 0.05, 0.04)
+    def test_axis_zero_sum_matches_loop(self):
+        a = compute_asset(simple_asset("A", 0.10), 1000.0, 0.0, 0.05, 0.04)
+        b = compute_asset(simple_asset("B", 0.06), 500.0, 100.0, 0.05, 0.04)
         inds = [a, b]
-        H = max(len(i.projecao) - 1 for i in inds)
-        P = matrix.construir_matriz_fluxos(inds, H)
+        H = max(len(i.projection) - 1 for i in inds)
+        P = matrix.build_cashflow_matrix(inds, H)
         outflows_mat = P.sum(axis=0)
 
-        # Referencia loop
+        # Loop reference
         outflows_loop = [0.0] * (H + 1)
-        prazos = [len(i.projecao) - 1 for i in inds]
-        p_meses = [i.aporte_mensal for i in inds]
-        for idx, prazo in enumerate(prazos):
-            for t in range(1, prazo + 1):
-                outflows_loop[t] += p_meses[idx]
+        terms = [len(i.projection) - 1 for i in inds]
+        monthly = [i.monthly_contrib for i in inds]
+        for idx, term in enumerate(terms):
+            for t in range(1, term + 1):
+                outflows_loop[t] += monthly[idx]
 
         for t in range(H + 1):
             self.assertAlmostEqual(outflows_mat[t], outflows_loop[t], places=10)
 
 
-class TestVPLCarteira(unittest.TestCase):
-    def test_vpl_bate_com_loop(self):
-        a = calcular_ativo(ativo_simples("A", 0.10), 800.0, 0.0, 0.05, 0.04)
-        b = calcular_ativo(ativo_simples("B", 0.06), 200.0, 0.0, 0.05, 0.04)
+class TestPortfolioNpv(unittest.TestCase):
+    def test_npv_matches_loop(self):
+        a = compute_asset(simple_asset("A", 0.10), 800.0, 0.0, 0.05, 0.04)
+        b = compute_asset(simple_asset("B", 0.06), 200.0, 0.0, 0.05, 0.04)
         inds = [a, b]
-        H = max(len(i.projecao) - 1 for i in inds)
-        i_tma = mf.taxa_mensal_equivalente(0.05)
+        H = max(len(i.projection) - 1 for i in inds)
+        hurdle_monthly = mf.equivalent_monthly_rate(0.05)
 
-        P = matrix.construir_matriz_fluxos(inds, H)
+        P = matrix.build_cashflow_matrix(inds, H)
         outflows = P.sum(axis=0)
-        ml_h = sum(pj[H]["montante_liquido"] for pj in [
-            a.projecao, b.projecao
-        ])
-        # Ajustar projecao ate H
-        from src.performance import _projecao_ate, _taxa_mensal_do_indicador
-        proj_est = [_projecao_ate(i.projecao, H, _taxa_mensal_do_indicador(i)) for i in inds]
-        ml_h = sum(pj[H]["montante_liquido"] for pj in proj_est)
-        a_tot = sum(i.aporte_inicial for i in inds)
+        # Extend projections to H
+        from src.performance import _extend_projection, _monthly_rate_from_metrics
+        extended = [_extend_projection(i.projection, H, _monthly_rate_from_metrics(i)) for i in inds]
+        net_h = sum(pj[H]["net_amount"] for pj in extended)
+        total_initial = sum(i.initial_contrib for i in inds)
 
-        vpl_mat = matrix.vpl_carteira(outflows, ml_h, a_tot, 0.05, H)
+        npv_mat = matrix.portfolio_npv(outflows, net_h, total_initial, 0.05, H)
 
-        # Referencia loop
-        vpl_loop = -a_tot
+        # Loop reference
+        npv_loop = -total_initial
         for t in range(1, H + 1):
-            vpl_loop += -outflows[t] / (1.0 + i_tma) ** t
-        vpl_loop += ml_h / (1.0 + i_tma) ** H
+            npv_loop += -outflows[t] / (1.0 + hurdle_monthly) ** t
+        npv_loop += net_h / (1.0 + hurdle_monthly) ** H
 
-        self.assertAlmostEqual(vpl_mat, vpl_loop, places=10)
+        self.assertAlmostEqual(npv_mat, npv_loop, places=10)
 
 
-class TestAlocarVetorizada(unittest.TestCase):
-    def test_alocacao_simples(self):
-        taxas = np.array([0.10, 0.05, 0.03])
+class TestVectorizedAllocate(unittest.TestCase):
+    def test_simple_allocation(self):
+        rates = np.array([0.10, 0.05, 0.03])
         mins = np.array([0.0, 0.0, 0.0])
         maxs = np.array([np.inf, np.inf, np.inf])
         capital = 1000.0
 
-        aloc = matrix.alocar_vetorizada(capital, taxas, mins, maxs)
-        # Tudo deve ir para o primeiro (maior taxa)
-        self.assertAlmostEqual(aloc[0], 1000.0)
-        self.assertAlmostEqual(aloc[1], 0.0)
-        self.assertAlmostEqual(aloc[2], 0.0)
+        alloc = matrix.vectorized_allocate(capital, rates, mins, maxs)
+        # Everything should go to the first (highest rate)
+        self.assertAlmostEqual(alloc[0], 1000.0)
+        self.assertAlmostEqual(alloc[1], 0.0)
+        self.assertAlmostEqual(alloc[2], 0.0)
 
-    def test_respeita_maximo(self):
-        taxas = np.array([0.10, 0.05])
+    def test_honors_maximum(self):
+        rates = np.array([0.10, 0.05])
         mins = np.array([0.0, 0.0])
         maxs = np.array([600.0, np.inf])
         capital = 1000.0
 
-        aloc = matrix.alocar_vetorizada(capital, taxas, mins, maxs)
-        self.assertAlmostEqual(aloc[0], 600.0)
-        self.assertAlmostEqual(aloc[1], 400.0)
+        alloc = matrix.vectorized_allocate(capital, rates, mins, maxs)
+        self.assertAlmostEqual(alloc[0], 600.0)
+        self.assertAlmostEqual(alloc[1], 400.0)
 
-    def test_respeita_minimo(self):
-        taxas = np.array([0.10, 0.05])
+    def test_honors_minimum(self):
+        rates = np.array([0.10, 0.05])
         mins = np.array([0.0, 400.0])
         maxs = np.array([np.inf, np.inf])
         capital = 1000.0
 
-        aloc = matrix.alocar_vetorizada(capital, taxas, mins, maxs)
-        self.assertAlmostEqual(aloc[1], 400.0)  # minimo garantido
-        self.assertAlmostEqual(aloc[0], 600.0)  # resto no melhor
+        alloc = matrix.vectorized_allocate(capital, rates, mins, maxs)
+        self.assertAlmostEqual(alloc[1], 400.0)  # guaranteed minimum
+        self.assertAlmostEqual(alloc[0], 600.0)  # remainder to the best
 
-    def test_reserva_recebe_resto(self):
-        taxas = np.array([0.02, 0.03])  # TMA = 0.03, ativo 0 abaixo
+    def test_reserve_takes_remainder(self):
+        rates = np.array([0.02, 0.03])  # hurdle = 0.03, asset 0 below
         mins = np.array([0.0, 0.0])
         maxs = np.array([np.inf, np.inf])
         capital = 500.0
 
-        aloc = matrix.alocar_vetorizada(capital, taxas, mins, maxs)
-        self.assertAlmostEqual(aloc[0], 0.0)
-        self.assertAlmostEqual(aloc[1], 500.0)
+        alloc = matrix.vectorized_allocate(capital, rates, mins, maxs)
+        self.assertAlmostEqual(alloc[0], 0.0)
+        self.assertAlmostEqual(alloc[1], 500.0)
 
 
-class TestMontanteVetorizado(unittest.TestCase):
-    def test_montante_aporte_unico_vetor(self):
-        valores = np.array([1000.0, 500.0, 200.0])
-        taxas = np.array([0.10, 0.05, 0.12])
-        prazos = np.array([12, 24, 6])
+class TestVectorizedAmounts(unittest.TestCase):
+    def test_lump_sum_vector(self):
+        principals = np.array([1000.0, 500.0, 200.0])
+        rates = np.array([0.10, 0.05, 0.12])
+        terms = np.array([12, 24, 6])
 
-        res = matrix.montante_aporte_unico_vetor(valores, taxas, prazos)
+        res = matrix.lump_sum_vector(principals, rates, terms)
         for i in range(3):
-            esper = mf.montante_aporte_unico(valores[i], taxas[i], prazos[i])
-            self.assertAlmostEqual(res[i], esper, places=10)
+            expected = mf.lump_sum_future_value(principals[i], rates[i], terms[i])
+            self.assertAlmostEqual(res[i], expected, places=10)
 
-    def test_montante_serie_vetor(self):
+    def test_series_vector(self):
         pmts = np.array([100.0, 200.0, 50.0])
-        taxas_m = np.array([0.01, 0.005, 0.02])
-        n_meses = np.array([12, 24, 6])
+        monthly = np.array([0.01, 0.005, 0.02])
+        n_months = np.array([12, 24, 6])
 
-        res = matrix.montante_serie_postecipada_vetor(pmts, taxas_m, n_meses)
+        res = matrix.arrears_series_vector(pmts, monthly, n_months)
         for i in range(3):
-            esper = mf.montante_serie_postecipada(pmts[i], taxas_m[i], n_meses[i])
-            self.assertAlmostEqual(res[i], esper, places=10)
+            expected = mf.arrears_series_future_value(pmts[i], monthly[i], n_months[i])
+            self.assertAlmostEqual(res[i], expected, places=10)
 
-    def test_fator_serie_descontada_vetor(self):
-        taxas_m = np.array([0.01, 0.005, 0.0])
-        n_meses = np.array([12, 24, 6])
+    def test_discounted_series_factor_vector(self):
+        monthly = np.array([0.01, 0.005, 0.0])
+        n_months = np.array([12, 24, 6])
 
-        res = matrix.fator_serie_descontada_vetor(taxas_m, n_meses)
+        res = matrix.discounted_series_factor_vector(monthly, n_months)
         for i in range(3):
-            esper = mf.fator_serie_descontada(taxas_m[i], n_meses[i])
-            self.assertAlmostEqual(res[i], esper, places=10)
+            expected = mf.discounted_series_factor(monthly[i], n_months[i])
+            self.assertAlmostEqual(res[i], expected, places=10)
 
 
-class TestMatrizAtributos(unittest.TestCase):
-    def test_extrair_atributos(self):
-        ativos = [
-            ativo_simples("A", 0.10, prazo=12),
-            ativo_simples("B", 0.05, prazo=24, imposto_modo="fixo", imposto_percentual=0.20),
+class TestFeatureMatrix(unittest.TestCase):
+    def test_extract_features(self):
+        assets = [
+            simple_asset("A", 0.10, term=12),
+            simple_asset("B", 0.05, term=24, tax_mode="fixed", tax_percent=0.20),
         ]
-        X = matrix.extrair_atributos_ativos(ativos)
+        X = matrix.extract_asset_features(assets)
         self.assertEqual(X.shape, (2, 8))
-        self.assertAlmostEqual(X[0, 0], 0.10)  # taxa_anual
-        self.assertAlmostEqual(X[0, 1], 12.0)  # prazo_meses
-        self.assertAlmostEqual(X[1, 2], 0.20)  # aliquota_imposto
+        self.assertAlmostEqual(X[0, 0], 0.10)  # annual_rate
+        self.assertAlmostEqual(X[0, 1], 12.0)  # term_months
+        self.assertAlmostEqual(X[1, 2], 0.20)  # tax_rate
 
 
 if __name__ == "__main__":

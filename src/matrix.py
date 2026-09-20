@@ -1,12 +1,12 @@
-"""Operacoes matriciais para o otimizador de investimentos.
+"""Matrix operations for the investment optimizer.
 
-Este modulo demonstra como o problema de alocacao de capital pode ser
-expresso com algebra linear: matrizes de fluxos, produto escalar para VPL,
-vetorizacao de taxas, etc.
+This module shows how the capital-allocation problem can be expressed
+with linear algebra: cash-flow matrices, dot products for NPV,
+rate vectorization, etc.
 """
 
 import numpy as np
-from typing import List, Tuple, Optional, TYPE_CHECKING
+from typing import List, TYPE_CHECKING
 from . import math_finance as mf
 
 if TYPE_CHECKING:
@@ -14,211 +14,211 @@ if TYPE_CHECKING:
     from . import performance
 
 
-def extrair_atributos_ativos(ativos: List["instruments.Ativo"]) -> np.ndarray:
-    """Extrai atributos numericos dos ativos como matriz (n_ativos x n_features).
+def extract_asset_features(assets: List["instruments.Asset"]) -> np.ndarray:
+    """Extract numeric asset features as a matrix (n_assets x n_features).
 
-    Features por ativo:
-    0: taxa_anual (efetiva)
-    1: prazo_meses
-    2: aliquota_imposto
-    3: admin_percentual (0 se modo='nenhuma')
-    4: aporte_inicial_min
-    5: aporte_inicial_max (inf se None)
-    6: usa_aporte_mensal (0/1)
-    7: aporte_mensal_max (inf se None ou nao usa)
+    Features per asset:
+    0: annual_rate (effective)
+    1: term_months
+    2: tax_rate
+    3: fee_percent (0 when mode='none')
+    4: initial_min
+    5: initial_max (inf when None)
+    6: uses_monthly (0/1)
+    7: monthly_max (inf when None or not used)
     """
-    n = len(ativos)
+    n = len(assets)
     X = np.zeros((n, 8), dtype=float)
-    for i, a in enumerate(ativos):
-        X[i, 0] = a.taxa_anual
-        X[i, 1] = a.prazo_meses
-        X[i, 2] = a.aliquota_imposto
-        X[i, 3] = a.admin_percentual if a.admin_modo != "nenhuma" else 0.0
-        X[i, 4] = a.aporte_inicial_min if a.aporte_inicial_min is not None else 0.0
-        X[i, 5] = a.aporte_inicial_max if a.aporte_inicial_max is not None else np.inf
-        X[i, 6] = 1.0 if a.usa_aporte_mensal else 0.0
-        X[i, 7] = a.aporte_mensal_max if a.usa_aporte_mensal and a.aporte_mensal_max is not None else np.inf
+    for i, a in enumerate(assets):
+        X[i, 0] = a.annual_rate
+        X[i, 1] = a.term_months
+        X[i, 2] = a.tax_rate
+        X[i, 3] = a.fee_percent if a.fee_mode != "none" else 0.0
+        X[i, 4] = a.initial_min if a.initial_min is not None else 0.0
+        X[i, 5] = a.initial_max if a.initial_max is not None else np.inf
+        X[i, 6] = 1.0 if a.uses_monthly else 0.0
+        X[i, 7] = a.monthly_max if a.uses_monthly and a.monthly_max is not None else np.inf
     return X
 
 
-def taxas_liquidas_vetor(ativos: List["instruments.Ativo"]) -> np.ndarray:
-    """Calcula taxas liquidas anualizadas de todos os ativos de forma vetorizada.
+def net_returns_vector(assets: List["instruments.Asset"]) -> np.ndarray:
+    """Annualized net rates of all assets, computed in vectorized form.
 
-    Retorna vetor r_liq onde r_liq[i] = taxa_liquida_anualizada(ativos[i]).
+    Returns a vector r_net where r_net[i] = annualized_net_return(assets[i]).
     """
     from . import instruments
-    n = len(ativos)
-    r_liq = np.zeros(n)
-    for i, a in enumerate(ativos):
-        resumo = instruments.resumo_ativo(a, 1.0, 0.0)
-        ml = resumo["montante_liquido"]
-        if ml <= 0.0:
-            r_liq[i] = -np.inf
+    n = len(assets)
+    r_net = np.zeros(n)
+    for i, a in enumerate(assets):
+        summary = instruments.asset_summary(a, 1.0, 0.0)
+        net = summary["net_amount"]
+        if net <= 0.0:
+            r_net[i] = -np.inf
         else:
-            r_liq[i] = ml ** (12.0 / a.prazo_meses) - 1.0
-    return r_liq
+            r_net[i] = net ** (12.0 / a.term_months) - 1.0
+    return r_net
 
 
-def construir_matriz_fluxos(
-    indicadores: List["performance.IndicadoresAtivo"],
-    horizonte: int
+def build_cashflow_matrix(
+    indicators: List["performance.AssetMetrics"],
+    horizon: int
 ) -> np.ndarray:
-    """Constrói matriz de fluxos de caixa mensais (n_ativos x H).
+    """Build the monthly cash-flow matrix (n_assets x H).
 
-    Cada linha i corresponde a um ativo. A coluna t (1-indexed) contem o
-    aporte mensal desse ativo no mes t, ou 0 se t > prazo do ativo.
-    A coluna 0 eh sempre 0 (aporte inicial tratado separadamente).
+    Each row i holds one asset. Column t (1-indexed) contains that
+    asset's monthly deposit in month t, or 0 when t exceeds the asset
+    term. Column 0 is always 0 (initial deposits handled separately).
     """
-    n = len(indicadores)
-    P = np.zeros((n, horizonte + 1), dtype=float)
-    for i, ind in enumerate(indicadores):
-        prazo = len(ind.projecao) - 1
-        p_mensal = ind.aporte_mensal
-        if p_mensal > 0 and prazo > 0:
-            fim = min(prazo, horizonte)
-            P[i, 1:fim + 1] = p_mensal
+    n = len(indicators)
+    P = np.zeros((n, horizon + 1), dtype=float)
+    for i, ind in enumerate(indicators):
+        term = len(ind.projection) - 1
+        monthly = ind.monthly_contrib
+        if monthly > 0 and term > 0:
+            end = min(term, horizon)
+            P[i, 1:end + 1] = monthly
     return P
 
 
-def vpl_carteira(
+def portfolio_npv(
     outflows: np.ndarray,
-    montante_liquido_h: float,
-    aporte_inicial_total: float,
-    tma_anual: float,
-    horizonte: int
+    net_amount_h: float,
+    total_initial: float,
+    hurdle_annual: float,
+    horizon: int
 ) -> float:
-    """Calcula VPL da carteira usando produto escalar (dot product).
+    """Portfolio NPV computed with a dot product.
 
-    VPL = -A0 + sum_{t=1..H} (-outflows[t]) / (1+i)^t + ML_H / (1+i)^H
+    NPV = -A0 + sum_{t=1..H} (-outflows[t]) / (1+i)^t + NET_H / (1+i)^H
     """
-    i_mensal = mf.taxa_mensal_equivalente(tma_anual)
-    desc = (1.0 + i_mensal) ** (-np.arange(horizonte + 1))
-    vpl = -aporte_inicial_total
-    vpl += float(np.dot(-outflows[1:], desc[1:]))
-    vpl += montante_liquido_h * desc[horizonte]
-    return vpl
+    monthly_i = mf.equivalent_monthly_rate(hurdle_annual)
+    discount = (1.0 + monthly_i) ** (-np.arange(horizon + 1))
+    npv = -total_initial
+    npv += float(np.dot(-outflows[1:], discount[1:]))
+    npv += net_amount_h * discount[horizon]
+    return npv
 
 
-def projecao_matricial(
-    ativos: List["instruments.Ativo"],
-    aportes_iniciais: np.ndarray,
-    aportes_mensais: np.ndarray
+def matrix_projection(
+    assets: List["instruments.Asset"],
+    initial_contribs: np.ndarray,
+    monthly_contribs: np.ndarray
 ) -> np.ndarray:
-    """Calcula projecao mensal de montantes liquidos para todos os ativos.
+    """Monthly net-amount projection for all assets.
 
-    Retorna matriz M (n_ativos x H_max+1) onde M[i, t] = montante liquido
-    do ativo i no mes t. Linhas sao preenchidas com zeros apos o prazo do ativo.
+    Returns a matrix M (n_assets x H_max+1) where M[i, t] is the net
+    amount of asset i in month t. Rows are zero-padded past the asset term.
     """
     from . import instruments
-    n = len(ativos)
-    prazos = np.array([a.prazo_meses for a in ativos])
-    H_max = int(prazos.max()) if n > 0 else 0
+    n = len(assets)
+    terms = np.array([a.term_months for a in assets])
+    H_max = int(terms.max()) if n > 0 else 0
     M = np.zeros((n, H_max + 1), dtype=float)
 
-    for i, a in enumerate(ativos):
-        a_ini = aportes_iniciais[i]
-        p_men = aportes_mensais[i]
-        m = a.prazo_meses
-        r_ano = a.taxa_anual
-        i_m = a.taxa_mensal
+    for i, a in enumerate(assets):
+        a_ini = initial_contribs[i]
+        p_mon = monthly_contribs[i]
+        m = a.term_months
+        annual_r = a.annual_rate
+        monthly_i = a.monthly_rate
 
-        resumo = instruments.resumo_ativo(a, a_ini, p_men)
-        ded_total = resumo["imposto"] + resumo["admin"]
+        summary = instruments.asset_summary(a, a_ini, p_mon)
+        total_ded = summary["tax"] + summary["fee"]
 
         for t in range(0, m + 1):
             if t == 0:
                 f = a_ini
             else:
-                f = a_ini * (1.0 + r_ano) ** (t / 12.0)
-                f += p_men * mf.fator_serie_postecipada(i_m, t)
-            fracao = t / m if m else 1.0
-            ml = max(f - ded_total * fracao, 0.0)
-            M[i, t] = ml
+                f = a_ini * (1.0 + annual_r) ** (t / 12.0)
+                f += p_mon * mf.arrears_series_factor(monthly_i, t)
+            fraction = t / m if m else 1.0
+            net = max(f - total_ded * fraction, 0.0)
+            M[i, t] = net
 
     return M
 
 
-def alocar_vetorizada(
+def vectorized_allocate(
     capital: float,
-    taxas_liq: np.ndarray,
+    net_rates: np.ndarray,
     mins: np.ndarray,
     maxs: np.ndarray
 ) -> np.ndarray:
-    """Alocacao gulosa vetorizada por taxa liquida decrescente.
+    """Greedy vectorized allocation by decreasing net rate.
 
     Args:
-        capital: Capital total disponivel
-        taxas_liq: Vetor de taxas liquidas (maior = melhor)
-        mins: Vetor de minimos por ativo
-        maxs: Vetor de maximos por ativo (inf = sem limite)
+        capital: Total capital available.
+        net_rates: Vector of net rates (higher = better).
+        mins: Per-asset minimum vector.
+        maxs: Per-asset maximum vector (inf = uncapped).
 
     Returns:
-        Vetor de alocacao por ativo (mesma ordem de entrada).
+        Per-asset allocation vector (same input order).
     """
-    n = len(taxas_liq)
-    ordem = np.argsort(-taxas_liq)
+    n = len(net_rates)
+    order = np.argsort(-net_rates)
 
-    mins_ord = mins[ordem]
-    maxs_ord = maxs[ordem]
+    mins_ord = mins[order]
+    maxs_ord = maxs[order]
 
-    aloc_ord = mins_ord.copy()
-    restante = capital - mins_ord.sum()
+    alloc_ord = mins_ord.copy()
+    remaining = capital - mins_ord.sum()
 
-    capacidades = maxs_ord - mins_ord
+    capacities = maxs_ord - mins_ord
     for i in range(n):
-        if restante <= 1e-9:
+        if remaining <= 1e-9:
             break
-        cap = capacidades[i]
+        cap = capacities[i]
         if cap <= 0:
             continue
-        extra = min(cap, restante)
-        aloc_ord[i] += extra
-        restante -= extra
+        extra = min(cap, remaining)
+        alloc_ord[i] += extra
+        remaining -= extra
 
-    aloc = np.zeros(n)
-    aloc[ordem] = aloc_ord
-    return aloc
+    alloc = np.zeros(n)
+    alloc[order] = alloc_ord
+    return alloc
 
 
-def montante_aporte_unico_vetor(
-    valores: np.ndarray,
-    taxas_anuais: np.ndarray,
-    prazos_meses: np.ndarray
+def lump_sum_vector(
+    principals: np.ndarray,
+    annual_rates: np.ndarray,
+    terms_months: np.ndarray
 ) -> np.ndarray:
-    """Montante de aporte unico para multiplos ativos (vetorizado).
+    """Lump-sum future value for multiple assets (vectorized).
 
-    M[i] = valores[i] * (1 + taxas_anuais[i])^(prazos_meses[i] / 12)
+    M[i] = principals[i] * (1 + annual_rates[i])^(terms_months[i] / 12)
     """
-    return valores * (1.0 + taxas_anuais) ** (prazos_meses / 12.0)
+    return principals * (1.0 + annual_rates) ** (terms_months / 12.0)
 
 
-def montante_serie_postecipada_vetor(
+def arrears_series_vector(
     pmts: np.ndarray,
-    taxas_mensais: np.ndarray,
-    n_meses: np.ndarray
+    monthly_rates: np.ndarray,
+    n_months: np.ndarray
 ) -> np.ndarray:
-    """Montante de serie postecipada para multiplos ativos (vetorizado)."""
-    resultado = np.zeros_like(pmts)
-    mask = np.abs(taxas_mensais) >= 1e-14
-    # Caso taxa ~ 0
-    resultado[~mask] = pmts[~mask] * n_meses[~mask]
-    # Caso geral
-    tm = taxas_mensais[mask]
-    nm = n_meses[mask]
-    resultado[mask] = pmts[mask] * ((1.0 + tm) ** nm - 1.0) / tm
-    return resultado
+    """In-arrears series future value for multiple assets (vectorized)."""
+    result = np.zeros_like(pmts)
+    mask = np.abs(monthly_rates) >= 1e-14
+    # Near-zero rate case
+    result[~mask] = pmts[~mask] * n_months[~mask]
+    # General case
+    tm = monthly_rates[mask]
+    nm = n_months[mask]
+    result[mask] = pmts[mask] * ((1.0 + tm) ** nm - 1.0) / tm
+    return result
 
 
-def fator_serie_descontada_vetor(
-    taxas_mensais: np.ndarray,
-    n_meses: np.ndarray
+def discounted_series_factor_vector(
+    monthly_rates: np.ndarray,
+    n_months: np.ndarray
 ) -> np.ndarray:
-    """Fator de desconto de serie para multiplas taxas/prazos."""
-    resultado = np.zeros_like(taxas_mensais)
-    mask = np.abs(taxas_mensais) >= 1e-14
-    resultado[~mask] = n_meses[~mask].astype(float)
-    tm = taxas_mensais[mask]
-    nm = n_meses[mask]
+    """Series discount factor for multiple rates/terms."""
+    result = np.zeros_like(monthly_rates)
+    mask = np.abs(monthly_rates) >= 1e-14
+    result[~mask] = n_months[~mask].astype(float)
+    tm = monthly_rates[mask]
+    nm = n_months[mask]
     q = 1.0 / (1.0 + tm)
-    resultado[mask] = q * (1.0 - q ** nm) / (1.0 - q)
-    return resultado
+    result[mask] = q * (1.0 - q ** nm) / (1.0 - q)
+    return result

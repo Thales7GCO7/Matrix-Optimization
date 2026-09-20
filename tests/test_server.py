@@ -8,72 +8,100 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi.testclient import TestClient
 
 from server import app
-from web.schema import ATIVOS_EXEMPLO
+from web.schema import EXAMPLE_ASSETS
 
 client = TestClient(app)
 
 
-def payload_cenario(**over):
+def scenario_payload(**overrides):
     p = {
         "capital": 10000.0,
-        "usar_mensal": True,
-        "aporte_mensal": 500.0,
-        "tma_modo": "auto",
-        "selic_pct": 10.5,
-        "ipca_pct": 4.5,
-        "tma_manual_pct": 5.5,
-        "inflacao_pct": 4.5,
-        "ativos": ATIVOS_EXEMPLO,
+        "use_monthly": True,
+        "monthly_contrib": 500.0,
+        "hurdle_mode": "auto",
+        "risk_free_pct": 4.0,
+        "inflation_pct": 2.5,
+        "hurdle_manual_pct": 5.5,
+        "assets": EXAMPLE_ASSETS,
     }
-    p.update(over)
+    p.update(overrides)
     return p
 
 
-class TestApiExemplos(unittest.TestCase):
-    def test_exemplos(self):
-        r = client.get("/api/exemplos")
+class TestPages(unittest.TestCase):
+    def test_dashboard_page(self):
+        r = client.get("/")
         self.assertEqual(r.status_code, 200)
-        self.assertGreaterEqual(len(r.json()["ativos"]), 4)
+        self.assertIn("dashboard", r.text.lower())
+
+    def test_assets_page(self):
+        r = client.get("/assets")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("assets", r.text.lower())
+
+    def test_shared_js(self):
+        r = client.get("/static/app.js")
+        self.assertEqual(r.status_code, 200)
 
 
-class TestApiOtimizar(unittest.TestCase):
-    def test_otimiza_carteira_exemplo(self):
-        r = client.post("/api/otimizar", json=payload_cenario())
+class TestExamplesApi(unittest.TestCase):
+    def test_examples(self):
+        r = client.get("/api/examples")
+        self.assertEqual(r.status_code, 200)
+        self.assertGreaterEqual(len(r.json()["assets"]), 4)
+
+    def test_examples_are_us_only(self):
+        r = client.get("/api/examples")
+        names = " ".join(a["name"] for a in r.json()["assets"])
+        self.assertNotIn("Bund", names)
+        self.assertNotIn("Euro", names)
+
+
+class TestOptimizeApi(unittest.TestCase):
+    def test_optimizes_sample_portfolio(self):
+        r = client.post("/api/optimize", json=scenario_payload())
         self.assertEqual(r.status_code, 200)
         j = r.json()
-        self.assertIsNone(j["erro"])
-        self.assertEqual(j["cenario"]["capital_inicial"], 10000.0)
-        self.assertIsNotNone(j["carteira"])
-        self.assertGreater(j["carteira"]["montante_liquido"], 0)
-        self.assertTrue(j["indicadores"])
-        self.assertTrue(any(i["reserva"] for i in j["indicadores"]))
-        # graficos em PNG base64
-        for k in ("alocacao", "patrimonio", "lucro_tma"):
-            uri = j["graficos"][k]
+        self.assertIsNone(j["error"])
+        self.assertEqual(j["scenario"]["initial_capital"], 10000.0)
+        self.assertIsNotNone(j["portfolio"])
+        self.assertGreater(j["portfolio"]["net_amount"], 0)
+        self.assertTrue(j["metrics"])
+        self.assertTrue(any(i["is_reserve"] for i in j["metrics"]))
+        # charts as base64 PNG
+        for k in ("allocation", "allocation_pie", "equity", "profit_vs_hurdle", "lp_max"):
+            uri = j["charts"][k]
             self.assertTrue(uri.startswith("data:image/png;base64,"))
+        # LP plane: objective, vertices, optimum, and resolution steps
+        lp = j["lp_model"]
+        self.assertTrue(lp["feasible"])
+        self.assertIn("max Z", lp["objective"])
+        self.assertTrue(lp["vertices"])
+        self.assertIn("vertex", lp["optimum"])
+        self.assertTrue(lp["steps"])
 
-    def test_otimiza_tma_manual(self):
+    def test_optimizes_manual_hurdle(self):
         r = client.post(
-            "/api/otimizar",
-            json=payload_cenario(tma_modo="manual", tma_manual_pct=5.0, inflacao_pct=3.0),
+            "/api/optimize",
+            json=scenario_payload(hurdle_mode="manual", hurdle_manual_pct=5.0, inflation_pct=3.0),
         )
         self.assertEqual(r.status_code, 200)
         j = r.json()
-        self.assertAlmostEqual(j["cenario"]["tma_pct"], 5.0)
-        self.assertAlmostEqual(j["cenario"]["inflacao_pct"], 3.0)
+        self.assertAlmostEqual(j["scenario"]["hurdle_pct"], 5.0)
+        self.assertAlmostEqual(j["scenario"]["inflation_pct"], 3.0)
 
-    def test_minimos_excedem_capital_retorna_422(self):
-        ativos = [
-            {**ATIVOS_EXEMPLO[0], "inicial_min": 20000.0, "inicial_max": 0.0},
-            {**ATIVOS_EXEMPLO[1], "inicial_min": 0.0, "inicial_max": 0.0},
+    def test_minimums_above_capital_return_422(self):
+        assets = [
+            {**EXAMPLE_ASSETS[0], "initial_min": 20000.0, "initial_max": 0.0},
+            {**EXAMPLE_ASSETS[1], "initial_min": 0.0, "initial_max": 0.0},
         ]
-        r = client.post("/api/otimizar", json=payload_cenario(capital=10000.0, ativos=ativos))
+        r = client.post("/api/optimize", json=scenario_payload(capital=10000.0, assets=assets))
         self.assertEqual(r.status_code, 422)
-        self.assertIn("erro", r.json())
+        self.assertIn("error", r.json())
 
-    def test_periodo_invalido_retorna_422(self):
-        ativos = [{**ATIVOS_EXEMPLO[0], "periodo": "decadal"}]
-        r = client.post("/api/otimizar", json=payload_cenario(ativos=ativos))
+    def test_invalid_period_returns_422(self):
+        assets = [{**EXAMPLE_ASSETS[0], "period": "decadal"}]
+        r = client.post("/api/optimize", json=scenario_payload(assets=assets))
         self.assertEqual(r.status_code, 422)
 
 

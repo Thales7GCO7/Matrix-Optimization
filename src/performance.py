@@ -1,9 +1,9 @@
-"""Indices de desempenho de investimentos (ROI, VPL, TIR, payback, IL, alfa).
+"""Investment performance metrics (ROI, NPV, IRR, payback, PI, alpha).
 
-Os indices sao calculados por ativo (dados os aportes decididos pela
-otimizacao) e agregados para a carteira. A TMA (taxa minima de
-atratividade) e a taxa de desconto do VPL e representa o custo de
-oportunidade do capital; a inflacao permite calcular o retorno real.
+Metrics are computed per asset (given the deposits chosen by the
+optimization) and aggregated for the portfolio. The hurdle rate (minimum
+attractive rate) is the NPV discount rate and represents the opportunity
+cost of capital; inflation allows the real return to be computed.
 """
 
 from dataclasses import dataclass, field
@@ -17,304 +17,303 @@ from . import matrix
 
 
 @dataclass
-class IndicadoresAtivo:
-    nome: str
-    reserva: bool
-    aporte_inicial: float
-    aporte_mensal: float
-    aportado_total: float
-    montante_bruto: float
-    rendimento_bruto: float
-    imposto: float
-    admin: float
-    aliquota_imposto: float
-    montante_liquido: float
-    lucro_liquido: float
+class AssetMetrics:
+    name: str
+    is_reserve: bool
+    initial_contrib: float
+    monthly_contrib: float
+    total_contributed: float
+    gross_amount: float
+    gross_gain: float
+    tax: float
+    fee: float
+    tax_rate: float
+    net_amount: float
+    net_profit: float
     roi: float
-    roi_anualizado: Optional[float]
-    retorno_real: Optional[float]
-    vpl: float
-    tir_mensal: Optional[float]
-    tir_anual: Optional[float]
-    payback_simples: Optional[float]
-    payback_descontado: Optional[float]
-    il: Optional[float]
-    alfa: Optional[float]
-    lucro_tma: float
-    ganho_adicional: float
-    taxa_anual_liq: float
-    projecao: List[dict] = field(default_factory=list)
+    annualized_roi: Optional[float]
+    real_return: Optional[float]
+    npv: float
+    monthly_irr: Optional[float]
+    annual_irr: Optional[float]
+    simple_payback: Optional[float]
+    discounted_payback: Optional[float]
+    profitability_index: Optional[float]
+    alpha: Optional[float]
+    hurdle_profit: float
+    excess_profit: float
+    net_annual_rate: float
+    projection: List[dict] = field(default_factory=list)
 
 
 @dataclass
-class IndicadoresCarteira:
-    capital_inicial: float
-    aporte_mensal_total: float
-    capital_aplicado: float
-    reserva: float
-    montante_liquido: float
-    lucro_liquido: float
+class PortfolioMetrics:
+    initial_capital: float
+    total_monthly_contrib: float
+    invested_capital: float
+    reserve: float
+    net_amount: float
+    net_profit: float
     roi: float
-    roi_anualizado: Optional[float]
-    vpl: float
-    tir_anual: Optional[float]
-    alfa: Optional[float]
-    lucro_tma: float
-    ganho_adicional: float
+    annualized_roi: Optional[float]
+    npv: float
+    annual_irr: Optional[float]
+    alpha: Optional[float]
+    hurdle_profit: float
+    excess_profit: float
 
 
-def calcular_ativo(
-    ativo: instruments.Ativo,
-    aporte_inicial: float,
-    aporte_mensal: float,
-    tma_anual: float,
-    inflacao_anual: float,
-    reserva: bool = False,
-) -> IndicadoresAtivo:
-    """Indices de desempenho de um unico ativo."""
-    res = instruments.resumo_ativo(ativo, aporte_inicial, aporte_mensal)
-    m = ativo.prazo_meses
-    a = res["aporte_inicial"]
-    p = res["aporte_mensal"]
-    ml = res["montante_liquido"]
-    aplicado = res["aportado_total"]
+def compute_asset(
+    asset: instruments.Asset,
+    initial_contrib: float,
+    monthly_contrib: float,
+    hurdle_annual: float,
+    inflation_annual: float,
+    is_reserve: bool = False,
+) -> AssetMetrics:
+    """Performance metrics of a single asset."""
+    res = instruments.asset_summary(asset, initial_contrib, monthly_contrib)
+    m = asset.term_months
+    a = res["initial_contrib"]
+    p = res["monthly_contrib"]
+    net = res["net_amount"]
+    contributed = res["total_contributed"]
 
-    taxa_disc = mf.taxa_mensal_equivalente(tma_anual)
-    desc_serie = mf.fator_serie_descontada(taxa_disc, m)
-    vpl = -a - p * desc_serie + ml / (1.0 + taxa_disc) ** m
+    discount_rate = mf.equivalent_monthly_rate(hurdle_annual)
+    series_discount = mf.discounted_series_factor(discount_rate, m)
+    npv = -a - p * series_discount + net / (1.0 + discount_rate) ** m
 
-    # TIR pelo fluxo mensal. O aporte do mes m e depositado e pronto
-    # resgatado (rendimento zero), por isso o fluxo final e ML - p.
-    fluxo = [-a] + [-p] * (m - 1) + [ml - p]
+    # IRR over the monthly cash flow. The month-m deposit is placed and
+    # immediately redeemed (zero yield), so the final flow is NET - p.
+    flow = [-a] + [-p] * (m - 1) + [net - p]
     if a <= 0.0 and p <= 0.0:
-        tir_mensal = None
+        monthly_irr = None
     else:
-        tir_mensal = mf.tir_de_fluxo(fluxo)
-    tir_anual = (1.0 + tir_mensal) ** 12 - 1.0 if tir_mensal is not None else None
+        monthly_irr = mf.cashflow_irr(flow)
+    annual_irr = (1.0 + monthly_irr) ** 12 - 1.0 if monthly_irr is not None else None
 
-    roi = res["lucro_liquido"] / aplicado if aplicado > 0 else 0.0
+    roi = res["net_profit"] / contributed if contributed > 0 else 0.0
 
-    if p > 0.0 and tir_anual is not None:
-        roi_anualizado = tir_anual
-    elif a > 0.0 and ml > 0.0:
-        roi_anualizado = (ml / a) ** (12.0 / m) - 1.0
+    if p > 0.0 and annual_irr is not None:
+        annualized_roi = annual_irr
+    elif a > 0.0 and net > 0.0:
+        annualized_roi = (net / a) ** (12.0 / m) - 1.0
     else:
-        roi_anualizado = None
+        annualized_roi = None
 
-    retorno_real = (
-        (1.0 + roi_anualizado) / (1.0 + inflacao_anual) - 1.0
-        if roi_anualizado is not None and (1.0 + inflacao_anual) > 0.0
+    real_return = (
+        (1.0 + annualized_roi) / (1.0 + inflation_annual) - 1.0
+        if annualized_roi is not None and (1.0 + inflation_annual) > 0.0
         else None
     )
 
-    pv_aplicado = a + p * desc_serie
-    il = vpl / pv_aplicado + 1.0 if pv_aplicado > 0.0 else None
+    pv_contributed = a + p * series_discount
+    profitability_index = npv / pv_contributed + 1.0 if pv_contributed > 0.0 else None
 
-    alfa = roi_anualizado - tma_anual if roi_anualizado is not None else None
+    alpha = annualized_roi - hurdle_annual if annualized_roi is not None else None
 
-    # Custo de oportunidade: o mesmo fluxo de aportes rendendo na TMA.
-    ml_tma = (
-        mf.montante_aporte_unico(a, tma_anual, m)
-        + mf.montante_serie_postecipada(p, mf.taxa_mensal_equivalente(tma_anual), m)
+    # Opportunity cost: the same deposit flow earning the hurdle rate.
+    hurdle_net = (
+        mf.lump_sum_future_value(a, hurdle_annual, m)
+        + mf.arrears_series_future_value(p, mf.equivalent_monthly_rate(hurdle_annual), m)
     )
-    lucro_tma = ml_tma - aplicado
-    ganho_adicional = res["lucro_liquido"] - lucro_tma
+    hurdle_profit = hurdle_net - contributed
+    excess_profit = res["net_profit"] - hurdle_profit
 
-    projecao = instruments.projecao_mensal(ativo, a, p)
-    payback_simples = _payback_simples(projecao)
-    payback_descontado = _payback_descontado(projecao, taxa_disc)
+    projection = instruments.monthly_projection(asset, a, p)
+    simple_payback = _simple_payback(projection)
+    discounted_payback = _discounted_payback(projection, discount_rate)
 
-    return IndicadoresAtivo(
-        nome=ativo.nome,
-        reserva=reserva,
-        aporte_inicial=a,
-        aporte_mensal=p,
-        aportado_total=aplicado,
-        montante_bruto=res["montante_bruto"],
-        rendimento_bruto=res["rendimento_bruto"],
-        imposto=res["imposto"],
-        admin=res["admin"],
-        aliquota_imposto=res["aliquota_imposto"],
-        montante_liquido=ml,
-        lucro_liquido=res["lucro_liquido"],
+    return AssetMetrics(
+        name=asset.name,
+        is_reserve=is_reserve,
+        initial_contrib=a,
+        monthly_contrib=p,
+        total_contributed=contributed,
+        gross_amount=res["gross_amount"],
+        gross_gain=res["gross_gain"],
+        tax=res["tax"],
+        fee=res["fee"],
+        tax_rate=res["tax_rate"],
+        net_amount=net,
+        net_profit=res["net_profit"],
         roi=roi,
-        roi_anualizado=roi_anualizado,
-        retorno_real=retorno_real,
-        vpl=vpl,
-        tir_mensal=tir_mensal,
-        tir_anual=tir_anual,
-        payback_simples=payback_simples,
-        payback_descontado=payback_descontado,
-        il=il,
-        alfa=alfa,
-        lucro_tma=lucro_tma,
-        ganho_adicional=ganho_adicional,
-        taxa_anual_liq=instruments.taxa_liquida_anualizada(ativo),
-        projecao=projecao,
+        annualized_roi=annualized_roi,
+        real_return=real_return,
+        npv=npv,
+        monthly_irr=monthly_irr,
+        annual_irr=annual_irr,
+        simple_payback=simple_payback,
+        discounted_payback=discounted_payback,
+        profitability_index=profitability_index,
+        alpha=alpha,
+        hurdle_profit=hurdle_profit,
+        excess_profit=excess_profit,
+        net_annual_rate=instruments.annualized_net_return(asset),
+        projection=projection,
     )
 
 
-def _payback_simples(projecao: List[dict]) -> Optional[float]:
-    """Mes em que o resgate antecipado (montante liquido projetado) supera o aportado."""
-    for pt in projecao:
-        if pt["mes"] == 0:
+def _simple_payback(projection: List[dict]) -> Optional[float]:
+    """Month when the early-redemption (projected net amount) exceeds deposits."""
+    for pt in projection:
+        if pt["month"] == 0:
             continue
-        if pt["montante_liquido"] >= pt["aportado"]:
-            return float(pt["mes"])
+        if pt["net_amount"] >= pt["contributed"]:
+            return float(pt["month"])
     return None
 
 
-def _payback_descontado(projecao: List[dict], taxa_desconto: float) -> Optional[float]:
-    """Mes em que o VPL do resgate na data t (fluxo descontado) fica >= 0."""
-    if len(projecao) < 2:
+def _discounted_payback(projection: List[dict], discount_rate: float) -> Optional[float]:
+    """Month when the NPV of redeeming at date t (discounted flow) turns >= 0."""
+    if len(projection) < 2:
         return None
-    a = projecao[0]["aportado"]
-    p = projecao[1]["aportado"] - a
-    for pt in projecao:
-        t = pt["mes"]
+    a = projection[0]["contributed"]
+    p = projection[1]["contributed"] - a
+    for pt in projection:
+        t = pt["month"]
         if t == 0:
             continue
-        desc_serie = mf.fator_serie_descontada(taxa_desconto, t)
-        vpl = -a - p * desc_serie + pt["montante_liquido"] / (1.0 + taxa_desconto) ** t
-        if vpl >= 0.0:
+        series_discount = mf.discounted_series_factor(discount_rate, t)
+        npv = -a - p * series_discount + pt["net_amount"] / (1.0 + discount_rate) ** t
+        if npv >= 0.0:
             return float(t)
     return None
 
 
-def _projecao_ate(projecao: List[dict], horizonte: int, taxa_mensal: float) -> List[dict]:
-    """Estende a projecao ate o horizonte H compostando apos o vencimento.
+def _extend_projection(projection: List[dict], horizon: int, monthly_rate: float) -> List[dict]:
+    """Extend the projection to horizon H by compounding past maturity.
 
-    Apos o prazo do ativo as deducoes ja foram pagas e o montante volta a
-    crescer a taxa mensal do ativo (reinvestimento implicito).
+    After the asset term the deductions are already paid and the amount
+    grows again at the asset monthly rate (implicit reinvestment).
     """
-    m = len(projecao) - 1
-    if m >= horizonte:
-        return projecao[: horizonte + 1]
-    out = list(projecao)
-    ml_final = projecao[-1]["montante_liquido"]
-    aportado_final = projecao[-1]["aportado"]
-    for t in range(m + 1, horizonte + 1):
+    m = len(projection) - 1
+    if m >= horizon:
+        return projection[: horizon + 1]
+    out = list(projection)
+    final_net = projection[-1]["net_amount"]
+    final_contributed = projection[-1]["contributed"]
+    for t in range(m + 1, horizon + 1):
         out.append(
             {
-                "mes": t,
-                "montante_liquido": ml_final * (1.0 + taxa_mensal) ** (t - m),
-                "aportado": aportado_final,
+                "month": t,
+                "net_amount": final_net * (1.0 + monthly_rate) ** (t - m),
+                "contributed": final_contributed,
             }
         )
     return out
 
 
-def calcular_carteira(
-    indicadores: List[IndicadoresAtivo],
-    tma_anual: float,
-) -> IndicadoresCarteira:
-    """Indices agregados da carteira, montando o fluxo mensal real.
+def compute_portfolio(
+    metrics: List[AssetMetrics],
+    hurdle_annual: float,
+) -> PortfolioMetrics:
+    """Aggregate portfolio metrics, assembling the actual monthly cash flow.
 
-    O horizonte da carteira H e o maior prazo entre os ativos. Aportes
-    mensais ocorrem ate o prazo de cada ativo (postecipados); o patrimonio
-    de um ativo e projetado (com reinvestimento implicito) ate H. A TIR e o
-    VPL da carteira sao calculados sobre esse fluxo agregado.
+    The portfolio horizon H is the longest asset term. Monthly deposits
+    run until each asset's own term (in arrears); each asset's wealth is
+    projected (with implicit reinvestment) to H. The portfolio IRR and
+    NPV are computed over that aggregate flow.
     """
-    if not indicadores:
-        # Carteira vazia.
-        return IndicadoresCarteira(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, None, 0.0, None, None, 0.0, 0.0)
+    if not metrics:
+        # Empty portfolio.
+        return PortfolioMetrics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, None, 0.0, None, None, 0.0, 0.0)
 
-    H = max(len(i.projecao) - 1 for i in indicadores) or 1
-    i_tma = mf.taxa_mensal_equivalente(tma_anual)
+    H = max(len(i.projection) - 1 for i in metrics) or 1
+    hurdle_monthly = mf.equivalent_monthly_rate(hurdle_annual)
 
-    a_tot = sum(i.aporte_inicial for i in indicadores)
-    proj_est = [
-        _projecao_ate(i.projecao, H, _taxa_mensal_do_indicador(i)) for i in indicadores
+    total_initial = sum(i.initial_contrib for i in metrics)
+    extended = [
+        _extend_projection(i.projection, H, _monthly_rate_from_metrics(i)) for i in metrics
     ]
 
-    ml_h = sum(pj[H]["montante_liquido"] for pj in proj_est)
-    prazos = [len(i.projecao) - 1 for i in indicadores]
-    p_meses = [i.aporte_mensal for i in indicadores]
+    net_h = sum(pj[H]["net_amount"] for pj in extended)
 
-    # Matriz de fluxos (n_ativos x H+1)
-    P = matrix.construir_matriz_fluxos(indicadores, H)
-    outflows = P.sum(axis=0)  # vetor 1D: soma ao longo dos ativos
+    # Cash-flow matrix (n_assets x H+1)
+    P = matrix.build_cashflow_matrix(metrics, H)
+    outflows = P.sum(axis=0)  # 1D vector: summed over assets
 
-    total_aportado = a_tot + float(outflows[1:].sum())
+    total_contributed = total_initial + float(outflows[1:].sum())
 
-    # Fluxo agregado para TIR
-    fluxo = [-a_tot]
+    # Aggregate flow for IRR
+    flow = [-total_initial]
     for t in range(1, H):
-        fluxo.append(-outflows[t])
-    fluxo.append(ml_h - outflows[H])
+        flow.append(-outflows[t])
+    flow.append(net_h - outflows[H])
 
-    # VPL via produto escalar (dot product)
-    vpl = matrix.vpl_carteira(outflows, ml_h, a_tot, tma_anual, H)
+    # NPV via dot product
+    npv = matrix.portfolio_npv(outflows, net_h, total_initial, hurdle_annual, H)
 
-    if a_tot > 0.0 or any(o > 0 for o in outflows):
-        tir_mensal = mf.tir_de_fluxo(fluxo)
+    if total_initial > 0.0 or any(o > 0 for o in outflows):
+        monthly_irr = mf.cashflow_irr(flow)
     else:
-        tir_mensal = None
-    tir_anual = (1.0 + tir_mensal) ** 12 - 1.0 if tir_mensal is not None else None
+        monthly_irr = None
+    annual_irr = (1.0 + monthly_irr) ** 12 - 1.0 if monthly_irr is not None else None
 
-    lucro = ml_h - total_aportado
-    reserva = sum(i.aportado_total for i in indicadores if i.reserva)
+    profit = net_h - total_contributed
+    reserve = sum(i.total_contributed for i in metrics if i.is_reserve)
 
-    # Benchmark: mesmo fluxo de aportes rendendo na TMA ate H.
-    bal = a_tot
+    # Benchmark: same deposit flow earning the hurdle rate until H.
+    balance = total_initial
     for t in range(1, H + 1):
-        bal = bal * (1.0 + i_tma) + outflows[t]
-    ml_tma = bal
-    lucro_tma = ml_tma - total_aportado
-    ganho_adicional = lucro - lucro_tma
-    alfa = tir_anual - tma_anual if tir_anual is not None else None
+        balance = balance * (1.0 + hurdle_monthly) + outflows[t]
+    hurdle_net = balance
+    hurdle_profit = hurdle_net - total_contributed
+    excess_profit = profit - hurdle_profit
+    alpha = annual_irr - hurdle_annual if annual_irr is not None else None
 
-    return IndicadoresCarteira(
-        capital_inicial=a_tot,
-        aporte_mensal_total=float(outflows[1:].sum()),
-        capital_aplicado=total_aportado,
-        reserva=reserva,
-        montante_liquido=ml_h,
-        lucro_liquido=lucro,
-        roi=lucro / total_aportado if total_aportado > 0 else 0.0,
-        roi_anualizado=tir_anual,
-        vpl=vpl,
-        tir_anual=tir_anual,
-        alfa=alfa,
-        lucro_tma=lucro_tma,
-        ganho_adicional=ganho_adicional,
+    return PortfolioMetrics(
+        initial_capital=total_initial,
+        total_monthly_contrib=float(outflows[1:].sum()),
+        invested_capital=total_contributed,
+        reserve=reserve,
+        net_amount=net_h,
+        net_profit=profit,
+        roi=profit / total_contributed if total_contributed > 0 else 0.0,
+        annualized_roi=annual_irr,
+        npv=npv,
+        annual_irr=annual_irr,
+        alpha=alpha,
+        hurdle_profit=hurdle_profit,
+        excess_profit=excess_profit,
     )
 
 
-def _taxa_mensal_do_indicador(ind: IndicadoresAtivo) -> float:
-    """Taxa mensal equivalente ao retorno anualizado liquido do ativo.
+def _monthly_rate_from_metrics(ind: AssetMetrics) -> float:
+    """Monthly rate equivalent to the asset's annualized net return.
 
-    Usada apenas para reinvestimento implicito na extensao da projecao.
+    Used only for implicit reinvestment when extending the projection.
     """
-    if ind.roi_anualizado is not None and ind.roi_anualizado > -1.0:
-        return mf.taxa_mensal_equivalente(ind.roi_anualizado)
+    if ind.annualized_roi is not None and ind.annualized_roi > -1.0:
+        return mf.equivalent_monthly_rate(ind.annualized_roi)
     return 0.0
 
 
-def serie_patrimonio(
-    indicadores: List[IndicadoresAtivo], tma_anual: float
+def equity_series(
+    metrics: List[AssetMetrics], hurdle_annual: float
 ) -> List[dict]:
-    """Patrimonio liquido total mes a mes e o benchmark rendendo na TMA.
+    """Total month-by-month net wealth plus the hurdle-rate benchmark.
 
-    Mesmo horizonte dos aportes usado na carteira: cada ativo aporta ate o
-    proprio prazo e o resto investido rende apos o vencimento.
+    Same deposit horizon used for the portfolio: each asset receives
+    deposits until its own term and the invested remainder keeps earning
+    past maturity.
     """
-    if not indicadores:
+    if not metrics:
         return []
-    H = max(len(i.projecao) - 1 for i in indicadores) or 1
-    i_tma = mf.taxa_mensal_equivalente(tma_anual)
+    H = max(len(i.projection) - 1 for i in metrics) or 1
+    hurdle_monthly = mf.equivalent_monthly_rate(hurdle_annual)
 
-    proj_est = [_projecao_ate(i.projecao, H, _taxa_mensal_do_indicador(i)) for i in indicadores]
+    extended = [_extend_projection(i.projection, H, _monthly_rate_from_metrics(i)) for i in metrics]
 
-    a_tot = sum(i.aporte_inicial for i in indicadores)
-    P = matrix.construir_matriz_fluxos(indicadores, H)
+    total_initial = sum(i.initial_contrib for i in metrics)
+    P = matrix.build_cashflow_matrix(metrics, H)
     outflows = P.sum(axis=0)
 
-    bal_tma = a_tot
+    hurdle_balance = total_initial
     pts = []
     for t in range(0, H + 1):
         if t > 0:
-            bal_tma = bal_tma * (1.0 + i_tma) + outflows[t]
-        pat_tot = sum(pj[t]["montante_liquido"] for pj in proj_est)
-        pts.append({"mes": t, "patrimonio": pat_tot, "tma": bal_tma})
+            hurdle_balance = hurdle_balance * (1.0 + hurdle_monthly) + outflows[t]
+        total_wealth = sum(pj[t]["net_amount"] for pj in extended)
+        pts.append({"month": t, "wealth": total_wealth, "hurdle": hurdle_balance})
     return pts

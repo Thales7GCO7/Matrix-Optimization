@@ -1,115 +1,116 @@
-"""Matematica financeira: conversao de taxas, capitalizacao composta e series.
+"""Financial math: rate conversion, compound growth, and payment series.
 
-Convencoes adotadas em todo o projeto:
-- Taxas sao sempre fracoes decimais (ex.: 0.135 = 13,5% a.a.).
-- A taxa de cada ativo e informada com um periodo de capitalizacao
-  (anual, semestral, etc.) e uma base "efetiva" ou "nominal".
-- Internamente tudo e convertido para a taxa efetiva anual e, quando
-  necessario, para a taxa mensal equivalente.
+Conventions used throughout the project:
+- Rates are always decimal fractions (e.g.: 0.135 = 13.5% p.a.).
+- Each asset's rate is quoted with a compounding period
+  (annual, semiannual, etc.) and an "effective" or "nominal" basis.
+- Internally everything is converted to the effective annual rate and,
+  when needed, to the equivalent monthly rate.
 """
 
 from typing import Optional
 
-#: Numero de periodos por ano para cada periodo de capitalizacao.
-PERIODOS = {
-    "anual": 1,
-    "semestral": 2,
-    "trimestral": 4,
-    "bimestral": 6,
-    "mensal": 12,
-    "semanal": 52,
-    "diaria": 365,
+#: Number of periods per year for each compounding period.
+PERIODS = {
+    "annual": 1,
+    "semiannual": 2,
+    "quarterly": 4,
+    "bimonthly": 6,
+    "monthly": 12,
+    "weekly": 52,
+    "daily": 365,
 }
 
 
-def taxa_anual_efetiva(taxa: float, periodo: str = "anual", base: str = "efetiva") -> float:
-    """Converte (taxa, periodo, base) para a taxa efetiva anual.
+def effective_annual_rate(rate: float, period: str = "annual", basis: str = "effective") -> float:
+    """Convert a (rate, period, basis) triple to the effective annual rate.
 
-    - base "efetiva": a taxa ja e do proprio periodo (composto). Ex.:
-      taxa mensal 1% -> r_ano = (1.01)**12 - 1.
-    - base "nominal": a taxa e nominal anual; a taxa do periodo e
-      taxa/periodos e a efetiva anual resulta da composicao. Ex.:
-      13% a.a. nominal com capitalizacao mensal -> (1 + 0.13/12)**12 - 1.
+    - "effective" basis: the rate already belongs to its own period
+      (compounded). E.g.: 1% monthly -> r_year = (1.01)**12 - 1.
+    - "nominal" basis: the rate is a nominal annual rate; the per-period
+      rate is rate/periods and the effective annual rate follows from
+      compounding. E.g.: 13% p.a. nominal with monthly compounding ->
+      (1 + 0.13/12)**12 - 1.
     """
-    k = PERIODOS.get(periodo)
+    k = PERIODS.get(period)
     if k is None:
-        raise ValueError(f"Periodo de capitalizacao invalido: {periodo!r}")
-    taxa = float(taxa)
-    if base == "nominal":
-        return (1.0 + taxa / k) ** k - 1.0
-    return (1.0 + taxa) ** k - 1.0
+        raise ValueError(f"Invalid compounding period: {period!r}")
+    rate = float(rate)
+    if basis == "nominal":
+        return (1.0 + rate / k) ** k - 1.0
+    return (1.0 + rate) ** k - 1.0
 
 
-def taxa_mensal_equivalente(taxa_anual: float) -> float:
-    """Taxa mensal equivalente a uma taxa efetiva anual dada."""
-    return (1.0 + float(taxa_anual)) ** (1.0 / 12.0) - 1.0
+def equivalent_monthly_rate(annual_rate: float) -> float:
+    """Monthly rate equivalent to a given effective annual rate."""
+    return (1.0 + float(annual_rate)) ** (1.0 / 12.0) - 1.0
 
 
-def taxa_anual_equivalente(taxa_periodo: float, periodos_ano: int) -> float:
-    """Taxa efetiva anual equivalente a uma taxa do periodo (composta)."""
-    return (1.0 + float(taxa_periodo)) ** periodos_ano - 1.0
+def equivalent_annual_rate(period_rate: float, periods_per_year: int) -> float:
+    """Effective annual rate equivalent to a (compounded) per-period rate."""
+    return (1.0 + float(period_rate)) ** periods_per_year - 1.0
 
 
-def taxa_periodica_efetiva(taxa_anual: float, periodos_ano: int) -> float:
-    """Taxa efetiva de um periodo equivalente a uma taxa efetiva anual."""
-    return (1.0 + float(taxa_anual)) ** (1.0 / periodos_ano) - 1.0
+def effective_periodic_rate(annual_rate: float, periods_per_year: int) -> float:
+    """Effective per-period rate equivalent to an effective annual rate."""
+    return (1.0 + float(annual_rate)) ** (1.0 / periods_per_year) - 1.0
 
 
-def montante_aporte_unico(valor: float, taxa_anual: float, prazo_meses: int) -> float:
-    """Valor futuro de um aporte unico com capitalizacao composta por prazo_meses."""
-    return float(valor) * (1.0 + float(taxa_anual)) ** (float(prazo_meses) / 12.0)
+def lump_sum_future_value(principal: float, annual_rate: float, term_months: int) -> float:
+    """Future value of a lump-sum deposit compounded over term_months."""
+    return float(principal) * (1.0 + float(annual_rate)) ** (float(term_months) / 12.0)
 
 
-def fator_serie_postecipada(taxa_mensal: float, n_meses: int) -> float:
-    """Fator de acumulacao de uma serie uniforme postecipada de n aportes.
+def arrears_series_factor(monthly_rate: float, n_months: int) -> float:
+    """Accumulation factor of a level in-arrears series of n deposits.
 
-    Soma de (1+i)^t para t = 0 .. n-1. O ultimo aporte nao rende.
+    Sums (1+i)^t for t = 0 .. n-1. The last deposit earns no interest.
     """
-    if abs(float(taxa_mensal)) < 1e-14:
-        return float(n_meses)
-    return ((1.0 + taxa_mensal) ** n_meses - 1.0) / taxa_mensal
+    if abs(float(monthly_rate)) < 1e-14:
+        return float(n_months)
+    return ((1.0 + monthly_rate) ** n_months - 1.0) / monthly_rate
 
 
-def montante_serie_postecipada(pmt: float, taxa_mensal: float, n_meses: int) -> float:
-    """Valor futuro de aportes mensais iguais (postecipados) por n meses."""
-    return float(pmt) * fator_serie_postecipada(taxa_mensal, n_meses)
+def arrears_series_future_value(pmt: float, monthly_rate: float, n_months: int) -> float:
+    """Future value of equal monthly (in-arrears) deposits over n months."""
+    return float(pmt) * arrears_series_factor(monthly_rate, n_months)
 
 
-def fator_serie_descontada(taxa_mensal: float, n_meses: int) -> float:
-    """Soma de (1+i)^(-t) para t = 1 .. n (fator de desconto de serie)."""
-    if abs(float(taxa_mensal)) < 1e-14:
-        return float(n_meses)
-    q = 1.0 / (1.0 + taxa_mensal)
-    return q * (1.0 - q ** n_meses) / (1.0 - q)
+def discounted_series_factor(monthly_rate: float, n_months: int) -> float:
+    """Sum of (1+i)^(-t) for t = 1 .. n (series discount factor)."""
+    if abs(float(monthly_rate)) < 1e-14:
+        return float(n_months)
+    q = 1.0 / (1.0 + monthly_rate)
+    return q * (1.0 - q ** n_months) / (1.0 - q)
 
 
-def tir_de_fluxo(
-    fluxos,
+def cashflow_irr(
+    cashflows,
     lo: float = -0.9999,
     hi: float = 10.0,
-    pontos: int = 6000,
+    points: int = 6000,
 ) -> Optional[float]:
-    """Taxa interna de retorno (por periodo) de um fluxo de caixa.
+    """Internal rate of return (per period) of a cash flow series.
 
-    Retorna a taxa por periodo que zera o VPL. Prefere a raiz positiva
-    (retorno economico do investimento); caso nao exista raiz positiva,
-    retorna a raiz negativa mais proxima de zero se houver. Se nenhuma
-    raiz existir no intervalo, retorna None.
+    Returns the per-period rate that zeroes the NPV. Prefers the positive
+    root (the economic return of the investment); when no positive root
+    exists, returns the negative root closest to zero if there is one.
+    Returns None when no root exists in the interval.
     """
     import numpy as np
 
-    fluxos = np.asarray(fluxos, dtype=float)
-    if fluxos.size < 2:
+    cashflows = np.asarray(cashflows, dtype=float)
+    if cashflows.size < 2:
         return None
 
     def npv(r):
-        t = np.arange(fluxos.size)
-        return float(np.sum(fluxos / (1.0 + r) ** t))
+        t = np.arange(cashflows.size)
+        return float(np.sum(cashflows / (1.0 + r) ** t))
 
     from scipy.optimize import brentq
 
-    def _achar(lo_r, hi_r):
-        xs = np.linspace(lo_r, hi_r, pontos)
+    def _find(lo_r, hi_r):
+        xs = np.linspace(lo_r, hi_r, points)
         ys = np.array([npv(x) for x in xs])
         for i in range(1, len(xs)):
             if ys[i - 1] == 0.0:
@@ -123,15 +124,19 @@ def tir_de_fluxo(
                     return float(root)
         return None
 
-    raiz_positiva = _achar(0.0, hi)
-    if raiz_positiva is not None:
-        return raiz_positiva
-    return _achar(max(lo, -1.0 + 1e-6), 0.0)
+    positive_root = _find(0.0, hi)
+    if positive_root is not None:
+        return positive_root
+    return _find(max(lo, -1.0 + 1e-6), 0.0)
 
 
-def tma_por_indicadores(selic: float, ipca: float) -> float:
-    """Taxa minima de atratividade como juro real: (1+selic)/(1+ipca) - 1."""
-    ipca = float(ipca)
-    if (1.0 + ipca) <= 0.0:
-        raise ValueError("IPCA invalido.")
-    return (1.0 + float(selic)) / (1.0 + ipca) - 1.0
+def hurdle_from_indicators(risk_free: float, inflation: float) -> float:
+    """Minimum attractive (hurdle) rate as a real rate: (1+risk_free)/(1+inflation) - 1.
+
+    Use the US policy/risk-free rate and consumer inflation, e.g.
+    the Fed funds rate + CPI.
+    """
+    inflation = float(inflation)
+    if (1.0 + inflation) <= 0.0:
+        raise ValueError("Invalid inflation.")
+    return (1.0 + float(risk_free)) / (1.0 + inflation) - 1.0

@@ -1,51 +1,58 @@
 import unittest
 
 from src.tax import (
-    aliquota_imposto,
-    aliquota_ir_tabela,
-    imposto_sobre_taxa,
-    taxa_admin_em_reais,
+    tax_rate,
+    tax_on_gain,
+    admin_fee_amount,
+    TAX_MODES,
 )
 
 
-class TestImposto(unittest.TestCase):
-    def test_ir_tabela_faixas(self):
-        self.assertAlmostEqual(aliquota_ir_tabela(180), 0.225)
-        self.assertAlmostEqual(aliquota_ir_tabela(181), 0.200)
-        self.assertAlmostEqual(aliquota_ir_tabela(360), 0.200)
-        self.assertAlmostEqual(aliquota_ir_tabela(361), 0.175)
-        self.assertAlmostEqual(aliquota_ir_tabela(720), 0.175)
-        self.assertAlmostEqual(aliquota_ir_tabela(721), 0.150)
+class TestIncomeTax(unittest.TestCase):
+    def test_only_generic_modes(self):
+        self.assertEqual(TAX_MODES, ["exempt", "fixed"])
 
-    def test_aliquota_tabela_por_prazo_meses(self):
-        self.assertAlmostEqual(aliquota_imposto("ir_tabela", 6, None), aliquota_ir_tabela(180))
-        self.assertAlmostEqual(aliquota_imposto("isento", 12, None), 0.0)
-        self.assertAlmostEqual(aliquota_imposto("fixo", 12, 0.15), 0.15)
+    def test_fixed_and_exempt(self):
+        self.assertAlmostEqual(tax_rate("exempt", None), 0.0)
+        self.assertAlmostEqual(tax_rate("exempt", 0.25), 0.0)
+        self.assertAlmostEqual(tax_rate("fixed", 0.15), 0.15)
+        self.assertAlmostEqual(tax_rate("fixed", None), 0.0)
 
-    def test_imposto_nao_incide_sobre_prejuizo(self):
-        self.assertEqual(imposto_sobre_taxa(0.2, -50.0), 0.0)
-        self.assertAlmostEqual(imposto_sobre_taxa(0.2, 100.0), 20.0)
+    def test_typical_us_eu_rates(self):
+        # US brackets: long-term 15%, short-term marginal e.g. 22%/32%.
+        self.assertAlmostEqual(tax_rate("fixed", 0.15), 0.15)
+        self.assertAlmostEqual(tax_rate("fixed", 0.25), 0.25)
+        self.assertAlmostEqual(tax_rate("fixed", 0.30), 0.30)
+
+    def test_tax_not_levied_on_losses(self):
+        self.assertEqual(tax_on_gain(0.2, -50.0), 0.0)
+        self.assertAlmostEqual(tax_on_gain(0.2, 100.0), 20.0)
 
 
-class TestTaxaAdministrativa(unittest.TestCase):
-    def test_sobre_aporte(self):
-        d = taxa_admin_em_reais("aporte", 0.02, 0.0, 0.0, 1000.0, 12)
+class TestAdminFee(unittest.TestCase):
+    def test_on_contribution(self):
+        d = admin_fee_amount("contribution", 0.02, 0.0, 0.0, 1000.0, 12)
         self.assertAlmostEqual(d, 20.0)
 
-    def test_sobre_patrimonio_anual(self):
-        d = taxa_admin_em_reais("patrimonio", 0.10, 1000.0, 0.0, 1000.0, 12)
+    def test_on_assets_one_year(self):
+        d = admin_fee_amount("assets", 0.10, 1000.0, 0.0, 1000.0, 12)
         self.assertAlmostEqual(d, 100.0)
 
-    def test_sobre_patrimonio_dois_anos(self):
-        d = taxa_admin_em_reais("patrimonio", 0.10, 1000.0, 0.0, 1000.0, 24)
+    def test_on_assets_two_years(self):
+        d = admin_fee_amount("assets", 0.10, 1000.0, 0.0, 1000.0, 24)
         self.assertAlmostEqual(d, 1000.0 * (1 - 0.9 ** 2))
 
-    def test_sobre_rendimento(self):
-        d = taxa_admin_em_reais("rendimento", 0.20, 0.0, 500.0, 1000.0, 12)
+    def test_expense_ratio_scale(self):
+        # A 0.03% ETF expense ratio on $10k for 1 year ≈ $3.
+        d = admin_fee_amount("assets", 0.0003, 10000.0, 0.0, 10000.0, 12)
+        self.assertAlmostEqual(d, 3.0, places=6)
+
+    def test_on_gain(self):
+        d = admin_fee_amount("gain", 0.20, 0.0, 500.0, 1000.0, 12)
         self.assertAlmostEqual(d, 100.0)
 
-    def test_sem_taxa(self):
-        self.assertEqual(taxa_admin_em_reais("nenhuma", 0.5, 100.0, 50.0, 10.0, 12), 0.0)
+    def test_no_fee(self):
+        self.assertEqual(admin_fee_amount("none", 0.5, 100.0, 50.0, 10.0, 12), 0.0)
 
 
 if __name__ == "__main__":

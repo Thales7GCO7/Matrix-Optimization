@@ -1,19 +1,19 @@
-"""Modelo de ativo de investimento e calculo bruto -> liquido.
+"""Investment asset model and gross-to-net computation.
 
-Um `Ativo` e caracterizado pela taxa (com periodo e base), prazo ate o
-resgate, imposto e taxa administrativa. A renda e modelada como
-serie de aportes:
+An `Asset` is characterized by its rate (with period and basis), its term
+to redemption, income tax, and an administrative fee. Income is modeled as
+a deposit series:
 
-- aporte inicial unico A (alocacao de capital hoje);
-- aporte mensal P (recorrente, postecipado, ao fim de cada mes).
+- a lump-sum initial deposit A (capital allocated today);
+- a monthly deposit P (recurring, in arrears, at the end of each month).
 
-A funcao de lucro liquido final e linear em A e em P, o que permite
-alocacao otima por selecao otimizada (energia economica: aplicar primeiro
-onde o retorno liquido anualizado e maior).
+The final net-profit function is linear in A and in P, which allows an
+optimal allocation via greedy selection (economic intuition: invest first
+where the annualized net return is highest).
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -21,166 +21,179 @@ from . import math_finance as mf
 from . import tax
 from . import matrix
 
-#: Modos aceitos para base da taxa e tipos de imposto/taxa.
-BASES_TAXA = ["efetiva", "nominal"]
+#: Accepted rate bases and tax/fee modes.
+RATE_BASES = ["effective", "nominal"]
 
 
 @dataclass(frozen=True)
-class Ativo:
-    nome: str
-    taxa: float = 0.10
-    periodo: str = "anual"
-    base: str = "efetiva"
-    prazo_meses: int = 12
-    imposto_modo: str = "isento"
-    imposto_percentual: float = 0.0
-    admin_modo: str = "nenhuma"
-    admin_percentual: float = 0.0
-    aporte_inicial_min: float = 0.0
-    aporte_inicial_max: Optional[float] = None
-    usa_aporte_mensal: bool = False
-    aporte_mensal_max: Optional[float] = None
+class Asset:
+    name: str
+    rate: float = 0.10
+    period: str = "annual"
+    basis: str = "effective"
+    term_months: int = 12
+    tax_mode: str = "exempt"
+    tax_percent: float = 0.0
+    tax_brackets: Optional[Tuple[Tuple[float, float], ...]] = None
+    tax_bracket_key: str = "term"
+    fee_mode: str = "none"
+    fee_percent: float = 0.0
+    initial_min: float = 0.0
+    initial_max: Optional[float] = None
+    uses_monthly: bool = False
+    monthly_max: Optional[float] = None
 
     @property
-    def taxa_anual(self) -> float:
-        return mf.taxa_anual_efetiva(self.taxa, self.periodo, self.base)
+    def annual_rate(self) -> float:
+        return mf.effective_annual_rate(self.rate, self.period, self.basis)
 
     @property
-    def taxa_mensal(self) -> float:
-        return mf.taxa_mensal_equivalente(self.taxa_anual)
+    def monthly_rate(self) -> float:
+        return mf.equivalent_monthly_rate(self.annual_rate)
 
     @property
-    def aliquota_imposto(self) -> float:
-        return tax.aliquota_imposto(self.imposto_modo, self.prazo_meses, self.imposto_percentual)
+    def tax_rate(self) -> float:
+        lookup = float(self.term_months) if self.tax_bracket_key == "term" else 0.0
+        return tax.resolve_tax_rate(
+            self.tax_mode, self.tax_percent, self.tax_brackets,
+            self.tax_bracket_key, lookup,
+        )
 
     def __post_init__(self):
-        if not self.nome:
-            raise ValueError("Ativo sem nome.")
-        if self.prazo_meses <= 0:
-            raise ValueError(f"Prazo invalido para o ativo {self.nome!r}: {self.prazo_meses}.")
-        if self.taxa <= -1.0:
-            raise ValueError(f"Taxa invalida para o ativo {self.nome!r}.")
+        if not self.name:
+            raise ValueError("Asset without a name.")
+        if self.term_months <= 0:
+            raise ValueError(f"Invalid term for asset {self.name!r}: {self.term_months}.")
+        if self.rate <= -1.0:
+            raise ValueError(f"Invalid rate for asset {self.name!r}.")
 
     def label(self) -> str:
-        taxa_pct = self.taxa * 100
-        base = "ef." if self.base == "efetiva" else "nom."
-        resumo = f"{self.nome} | {taxa_pct:.3g}% a.{self._sigla_periodo(self.periodo)} ({base})"
-        resumo += f" | {self.prazo_meses} meses"
-        if self.imposto_modo == "ir_tabela":
-            resumo += f" | IR tabela ({tax.rotulo_ir_tabela(self.prazo_meses * 30)})"
-        elif self.imposto_modo == "fixo":
-            resumo += f" | IR {self.imposto_percentual * 100:.2g}%"
-        elif self.imposto_modo == "isento":
-            resumo += " | isento"
-        if self.admin_modo != "nenhuma":
-            resumo += f" | adm {self.admin_percentual * 100:.2g}%/{self.admin_modo}"
-        return resumo
+        rate_pct = self.rate * 100
+        basis = "eff." if self.basis == "effective" else "nom."
+        summary = f"{self.name} | {rate_pct:.3g}% p.a.-{self._period_abbr(self.period)} ({basis})"
+        summary += f" | {self.term_months} months"
+        if self.tax_mode == "fixed":
+            summary += f" | tax {self.tax_percent * 100:.2g}%"
+        elif self.tax_mode == "brackets":
+            summary += " | tax brackets"
+        elif self.tax_mode == "exempt":
+            summary += " | exempt"
+        if self.fee_mode != "none":
+            summary += f" | fee {self.fee_percent * 100:.2g}%/{self.fee_mode}"
+        return summary
 
     @staticmethod
-    def _sigla_periodo(periodo: str) -> str:
-        return {"anual": "a", "semestral": "s", "trimestral": "t", "bimestral": "b",
-                "mensal": "m", "semanal": "sem", "diaria": "d"}.get(periodo, "a")
+    def _period_abbr(period: str) -> str:
+        return {"annual": "y", "semiannual": "s", "quarterly": "q", "bimonthly": "b",
+                "monthly": "m", "weekly": "w", "daily": "d"}.get(period, "y")
 
 
-def montante_aporte_unico(ativo: Ativo, valor: float) -> float:
-    """Valor bruto acumulado de um aporte unico ate o resgate."""
-    if valor <= 0.0:
+def lump_sum_gross(asset: Asset, principal: float) -> float:
+    """Gross accumulated value of a lump-sum deposit held to redemption."""
+    if principal <= 0.0:
         return 0.0
-    return mf.montante_aporte_unico(float(valor), ativo.taxa_anual, ativo.prazo_meses)
+    return mf.lump_sum_future_value(float(principal), asset.annual_rate, asset.term_months)
 
 
-def montante_serie_mensal(ativo: Ativo, pmt: float) -> float:
-    """Valor bruto acumulado de aportes mensais postecipados (pmt) ateh o resgate."""
+def monthly_series_gross(asset: Asset, pmt: float) -> float:
+    """Gross accumulated value of in-arrears monthly deposits (pmt) to redemption."""
     if pmt <= 0.0:
         return 0.0
-    return mf.montante_serie_postecipada(float(pmt), ativo.taxa_mensal, ativo.prazo_meses)
+    return mf.arrears_series_future_value(float(pmt), asset.monthly_rate, asset.term_months)
 
 
-def deducoes(ativo: Ativo, montante_bruto: float, rendimento_bruto: float, aportado: float) -> Dict[str, float]:
-    """Deducoes em R$ de imposto e taxa administrativa."""
-    imposto = tax.imposto_sobre_taxa(ativo.aliquota_imposto, rendimento_bruto)
-    admin = tax.taxa_admin_em_reais(
-        ativo.admin_modo,
-        ativo.admin_percentual,
-        montante_bruto,
-        rendimento_bruto,
-        aportado,
-        ativo.prazo_meses,
+def deductions(asset: Asset, gross_amount: float, gross_gain: float, contributed: float) -> Dict[str, float]:
+    """Income-tax and administrative-fee deductions in currency units.
+
+    Delegates to the generic :func:`tax.compute_net_amount` so every
+    investment type shares one net-value logic.
+    """
+    res = tax.compute_net_amount(
+        gross_amount, contributed, asset.tax_mode, asset.tax_percent,
+        asset.fee_mode, asset.fee_percent, asset.term_months,
+        getattr(asset, "tax_brackets", None),
+        getattr(asset, "tax_bracket_key", "term"),
     )
-    return {"imposto": imposto, "admin": admin}
+    return {"tax": res["tax"], "fee": res["fee"]}
 
 
-def resumo_ativo(ativo: Ativo, aporte_inicial: float, aporte_mensal: float) -> Dict:
-    """Resumo do investimento no ativo dados os aportes (valores do fluxo real)."""
-    a = float(aporte_inicial)
-    p = float(aporte_mensal)
-    m = ativo.prazo_meses
+def asset_summary(asset: Asset, initial_contrib: float, monthly_contrib: float) -> Dict:
+    """Investment summary for the asset given its deposits (actual cash-flow values).
 
-    f_total = montante_aporte_unico(ativo, a) + montante_serie_mensal(ativo, p)
-    aportado = a + p * m
-    rend_bruto = f_total - aportado
+    Generic pipeline shared by every investment type: gross compounding
+    first, then :func:`tax.compute_net_amount` (tax + fee -> net).
+    """
+    a = float(initial_contrib)
+    p = float(monthly_contrib)
+    m = asset.term_months
 
-    ded = deducoes(ativo, f_total, rend_bruto, aportado)
-    montante_liquido = f_total - ded["imposto"] - ded["admin"]
-    lucro = montante_liquido - aportado
+    gross_total = lump_sum_gross(asset, a) + monthly_series_gross(asset, p)
+    contributed = a + p * m
+
+    net = tax.compute_net_amount(
+        gross_total, contributed, asset.tax_mode, asset.tax_percent,
+        asset.fee_mode, asset.fee_percent, m,
+        asset.tax_brackets, asset.tax_bracket_key,
+    )
 
     return {
-        "aporte_inicial": a,
-        "aporte_mensal": p,
-        "aportado_total": aportado,
-        "montante_bruto": f_total,
-        "rendimento_bruto": rend_bruto,
-        "imposto": ded["imposto"],
-        "admin": ded["admin"],
-        "aliquota_imposto": ativo.aliquota_imposto,
-        "montante_liquido": montante_liquido,
-        "lucro_liquido": lucro,
+        "initial_contrib": a,
+        "monthly_contrib": p,
+        "total_contributed": contributed,
+        "gross_amount": gross_total,
+        "gross_gain": net["gross_gain"],
+        "tax": net["tax"],
+        "fee": net["fee"],
+        "tax_rate": net["tax_rate"],
+        "net_amount": net["net_amount"],
+        "net_profit": net["net_profit"],
     }
 
 
-def projecao_mensal(ativo: Ativo, aporte_inicial: float, aporte_mensal: float) -> List[Dict]:
-    """Projecao mes a mes do montante liquido e do capital aportado.
+def monthly_projection(asset: Asset, initial_contrib: float, monthly_contrib: float) -> List[Dict]:
+    """Month-by-month projection of the net amount and the contributed capital.
 
-    Ilustrativa: as deducoes (imposto e taxa administrativa) que so
-    ocorrem no resgate sao distribuidas linearmente ao longo do prazo,
-    de modo que no mes final a projecao coincide exatamente com o
-    resumo real. Usada para payback e graficos.
+    Illustrative: deductions (income tax and fees) that only occur at
+    redemption are spread linearly over the term, so the final month of
+    the projection matches the actual summary exactly. Used for payback
+    and charts.
     """
-    a = float(aporte_inicial)
-    p = float(aporte_mensal)
-    m = ativo.prazo_meses
-    r_ano = ativo.taxa_anual
-    i_m = ativo.taxa_mensal
+    a = float(initial_contrib)
+    p = float(monthly_contrib)
+    m = asset.term_months
+    annual_r = asset.annual_rate
+    monthly_i = asset.monthly_rate
 
-    resumo = resumo_ativo(ativo, a, p)
-    ded_total = resumo["imposto"] + resumo["admin"]
+    summary = asset_summary(asset, a, p)
+    total_ded = summary["tax"] + summary["fee"]
 
     pts = []
     for t in range(0, m + 1):
         if t == 0:
             f = a
         else:
-            f = a * (1.0 + r_ano) ** (t / 12.0)
-            f += p * mf.fator_serie_postecipada(i_m, t)
-        fracao = t / m if m else 1.0
-        ml = max(f - ded_total * fracao, 0.0)
-        pts.append({"mes": t, "montante_liquido": ml, "aportado": a + p * t})
+            f = a * (1.0 + annual_r) ** (t / 12.0)
+            f += p * mf.arrears_series_factor(monthly_i, t)
+        fraction = t / m if m else 1.0
+        net = max(f - total_ded * fraction, 0.0)
+        pts.append({"month": t, "net_amount": net, "contributed": a + p * t})
     return pts
 
 
-def taxa_liquida_anualizada(ativo: Ativo) -> float:
-    """Retorno liquido anualizado do ativo (base para o ranking de alocacao).
+def annualized_net_return(asset: Asset) -> float:
+    """Annualized net return of the asset (basis for the allocation ranking).
 
-    Calculado com aporte unico unitario (a funcao e linear em A, logo a
-    taxa nao depende do valor). Le em conta imposto e taxa administrativa.
+    Computed with a unit lump-sum deposit (the function is linear in A, so
+    the rate does not depend on the amount). Accounts for income tax and
+    administrative fees.
     """
-    resumo = resumo_ativo(ativo, 1.0, 0.0)
-    ml = resumo["montante_liquido"]
-    if ml <= 0.0:
+    summary = asset_summary(asset, 1.0, 0.0)
+    net = summary["net_amount"]
+    if net <= 0.0:
         return float("-inf")
-    return (ml) ** (12.0 / ativo.prazo_meses) - 1.0
+    return (net) ** (12.0 / asset.term_months) - 1.0
 
 
-def taxas_liquidas_vetor(ativos: List[Ativo]) -> np.ndarray:
-    """Wrapper para matrix.taxas_liquidas_vetor."""
-    return matrix.taxas_liquidas_vetor(ativos)
+def net_returns_vector(assets: List[Asset]) -> np.ndarray:
+    """Wrapper around matrix.net_returns_vector."""
+    return matrix.net_returns_vector(assets)

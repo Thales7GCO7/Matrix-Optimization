@@ -1,155 +1,156 @@
-"""Contrato de dados da API e conversao para o modelo de dominio.
+"""API data contract and conversion to the domain model.
 
-O front-end (HTML/JS) envia um JSON com o cenario e a lista de ativos;
-este modulo valida o payload (pydantic) e converte para o modelo do
-dominio em `src.instruments.Ativo`, usado pelo otimizador.
+The front-end (HTML/JS) sends a JSON payload with the scenario and the
+asset list; this module validates the payload (pydantic) and converts it
+to the domain model in `src.instruments.Asset`, used by the optimizer.
 """
 
 from typing import List
 
 from pydantic import BaseModel, Field, field_validator
 
-from src.instruments import Ativo, BASES_TAXA
-from src.math_finance import PERIODOS, tma_por_indicadores
+from src.instruments import Asset, RATE_BASES
+from src.math_finance import PERIODS, hurdle_from_indicators
 
-TIPOS_IMPOSTO = ("isento", "fixo", "ir_tabela")
-TIPOS_ADMIN = ("nenhuma", "aporte", "patrimonio", "rendimento")
-PERIODOS_UI = list(PERIODOS)
+TAX_TYPES = ("exempt", "fixed")
+FEE_TYPES = ("none", "contribution", "assets", "gain")
+PERIODS_UI = list(PERIODS)
 
-ATIVOS_EXEMPLO: List[dict] = [
+#: Editable US benchmark defaults (Fed funds rate and CPI inflation,
+#: in % p.a.). Illustrative defaults, not live quotes.
+US_DEFAULTS = {"risk_free_pct": 4.0, "inflation_pct": 2.5}
+
+EXAMPLE_ASSETS: List[dict] = [
     {
-        "nome": "CDB 13% a.a. (nom., cap. mensal)",
-        "taxa_pct": 13.0, "periodo": "mensal", "base": "nominal", "prazo_meses": 24,
-        "imposto_modo": "ir_tabela", "imposto_pct": 0.0,
-        "admin_modo": "nenhuma", "admin_pct": 0.0,
-        "inicial_min": 0.0, "inicial_max": 5000.0,
-        "usa_mensal": True, "mensal_max": 300.0,
+        "name": "US Treasury note 4.2% p.a.",
+        "rate_pct": 4.2, "period": "annual", "basis": "effective", "term_months": 24,
+        "tax_mode": "fixed", "tax_pct": 22.0,
+        "fee_mode": "none", "fee_pct": 0.0,
+        "initial_min": 0.0, "initial_max": 5000.0,
+        "uses_monthly": True, "monthly_max": 300.0,
     },
     {
-        "nome": "Tesouro SELIC (IR tabela)",
-        "taxa_pct": 10.4, "periodo": "anual", "base": "efetiva", "prazo_meses": 18,
-        "imposto_modo": "ir_tabela", "imposto_pct": 0.0,
-        "admin_modo": "nenhuma", "admin_pct": 0.0,
-        "inicial_min": 0.0, "inicial_max": 2500.0,
-        "usa_mensal": True, "mensal_max": 100.0,
+        "name": "S&P 500 index fund (0.03% exp. ratio)",
+        "rate_pct": 8.0, "period": "annual", "basis": "effective", "term_months": 60,
+        "tax_mode": "fixed", "tax_pct": 15.0,
+        "fee_mode": "assets", "fee_pct": 0.03,
+        "initial_min": 0.0, "initial_max": 2500.0,
+        "uses_monthly": True, "monthly_max": 200.0,
     },
     {
-        "nome": "LCI isenta 9,5% a.a.",
-        "taxa_pct": 9.5, "periodo": "anual", "base": "efetiva", "prazo_meses": 12,
-        "imposto_modo": "isento", "imposto_pct": 0.0,
-        "admin_modo": "nenhuma", "admin_pct": 0.0,
-        "inicial_min": 0.0, "inicial_max": 1500.0,
-        "usa_mensal": True, "mensal_max": 100.0,
+        "name": "US corporate bond 5.1% p.a.",
+        "rate_pct": 5.1, "period": "annual", "basis": "effective", "term_months": 36,
+        "tax_mode": "fixed", "tax_pct": 22.0,
+        "fee_mode": "none", "fee_pct": 0.0,
+        "initial_min": 0.0, "initial_max": 3000.0,
+        "uses_monthly": True, "monthly_max": 100.0,
     },
     {
-        "nome": "Fundo RF (taxa adm. 1,5% a.a.)",
-        "taxa_pct": 11.0, "periodo": "anual", "base": "efetiva", "prazo_meses": 18,
-        "imposto_modo": "ir_tabela", "imposto_pct": 0.0,
-        "admin_modo": "patrimonio", "admin_pct": 1.5,
-        "inicial_min": 1000.0, "inicial_max": 2000.0,
-        "usa_mensal": True, "mensal_max": 100.0,
+        "name": "US high-yield savings 4.0% p.a.",
+        "rate_pct": 4.0, "period": "annual", "basis": "effective", "term_months": 12,
+        "tax_mode": "fixed", "tax_pct": 22.0,
+        "fee_mode": "none", "fee_pct": 0.0,
+        "initial_min": 1000.0, "initial_max": 2000.0,
+        "uses_monthly": True, "monthly_max": 100.0,
     },
 ]
 
 
-class AtivoPayload(BaseModel):
-    nome: str = Field(min_length=1, max_length=120)
-    taxa_pct: float = 0.0
-    periodo: str = "anual"
-    base: str = "efetiva"
-    prazo_meses: int = Field(gt=0, le=600)
-    imposto_modo: str = "isento"
-    imposto_pct: float = Field(default=0.0, ge=0.0, le=100.0)
-    admin_modo: str = "nenhuma"
-    admin_pct: float = Field(default=0.0, ge=0.0, le=100.0)
-    inicial_min: float = Field(default=0.0, ge=0.0)
-    inicial_max: float = Field(default=0.0, ge=0.0)
-    usa_mensal: bool = False
-    mensal_max: float = Field(default=0.0, ge=0.0)
+class AssetPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    rate_pct: float = 0.0
+    period: str = "annual"
+    basis: str = "effective"
+    term_months: int = Field(gt=0, le=600)
+    tax_mode: str = "exempt"
+    tax_pct: float = Field(default=0.0, ge=0.0, le=100.0)
+    fee_mode: str = "none"
+    fee_pct: float = Field(default=0.0, ge=0.0, le=100.0)
+    initial_min: float = Field(default=0.0, ge=0.0)
+    initial_max: float = Field(default=0.0, ge=0.0)
+    uses_monthly: bool = False
+    monthly_max: float = Field(default=0.0, ge=0.0)
 
-    @field_validator("periodo")
+    @field_validator("period")
     @classmethod
-    def _periodo_ok(cls, v: str) -> str:
-        if v not in PERIODOS:
-            raise ValueError(f"Periodo invalido: {v!r}. Use {list(PERIODOS)}.")
+    def _period_ok(cls, v: str) -> str:
+        if v not in PERIODS:
+            raise ValueError(f"Invalid period: {v!r}. Use {list(PERIODS)}.")
         return v
 
-    @field_validator("base")
+    @field_validator("basis")
     @classmethod
-    def _base_ok(cls, v: str) -> str:
-        if v not in BASES_TAXA:
-            raise ValueError(f"Base invalida: {v!r}.")
+    def _basis_ok(cls, v: str) -> str:
+        if v not in RATE_BASES:
+            raise ValueError(f"Invalid basis: {v!r}.")
         return v
 
-    @field_validator("imposto_modo")
+    @field_validator("tax_mode")
     @classmethod
-    def _imposto_ok(cls, v: str) -> str:
-        if v not in TIPOS_IMPOSTO:
-            raise ValueError(f"Tipo de imposto invalido: {v!r}.")
+    def _tax_ok(cls, v: str) -> str:
+        if v not in TAX_TYPES:
+            raise ValueError(f"Invalid tax type: {v!r}.")
         return v
 
-    @field_validator("admin_modo")
+    @field_validator("fee_mode")
     @classmethod
-    def _admin_ok(cls, v: str) -> str:
-        if v not in TIPOS_ADMIN:
-            raise ValueError(f"Tipo de taxa administrativa invalido: {v!r}.")
+    def _fee_ok(cls, v: str) -> str:
+        if v not in FEE_TYPES:
+            raise ValueError(f"Invalid fee type: {v!r}.")
         return v
 
-    @field_validator("taxa_pct")
+    @field_validator("rate_pct")
     @classmethod
-    def _taxa_ok(cls, v: float) -> float:
+    def _rate_ok(cls, v: float) -> float:
         if v <= -100.0:
-            raise ValueError("Taxa deve ser maior que -100%.")
+            raise ValueError("Rate must be greater than -100%.")
         return v
 
 
-class OtimizarRequest(BaseModel):
+class OptimizeRequest(BaseModel):
     capital: float = Field(default=10000.0, ge=0.0)
-    usar_mensal: bool = True
-    aporte_mensal: float = Field(default=0.0, ge=0.0)
-    tma_modo: str = "auto"
-    selic_pct: float = Field(default=10.5, ge=0.0)
-    ipca_pct: float = Field(default=4.5, ge=0.0)
-    tma_manual_pct: float = Field(default=5.5, ge=0.0)
-    inflacao_pct: float = Field(default=4.5, ge=0.0)
-    ativos: List[AtivoPayload]
+    use_monthly: bool = True
+    monthly_contrib: float = Field(default=0.0, ge=0.0)
+    hurdle_mode: str = "auto"
+    risk_free_pct: float = Field(default=4.0, ge=0.0)
+    inflation_pct: float = Field(default=2.5, ge=0.0)
+    hurdle_manual_pct: float = Field(default=5.5, ge=0.0)
+    assets: List[AssetPayload]
 
-    @field_validator("tma_modo")
+    @field_validator("hurdle_mode")
     @classmethod
-    def _tma_modo_ok(cls, v: str) -> str:
+    def _hurdle_mode_ok(cls, v: str) -> str:
         if v not in ("auto", "manual"):
-            raise ValueError("tma_modo deve ser 'auto' ou 'manual'.")
+            raise ValueError("hurdle_mode must be 'auto' or 'manual'.")
         return v
 
 
-def para_ativo(p: AtivoPayload) -> Ativo:
-    """Converte um payload para o modelo de dominio Ativo."""
-    return Ativo(
-        nome=p.nome.strip() or "Ativo",
-        taxa=p.taxa_pct / 100.0,
-        periodo=p.periodo,
-        base=p.base,
-        prazo_meses=p.prazo_meses,
-        imposto_modo=p.imposto_modo,
-        imposto_percentual=p.imposto_pct / 100.0,
-        admin_modo=p.admin_modo,
-        admin_percentual=p.admin_pct / 100.0,
-        aporte_inicial_min=p.inicial_min,
-        aporte_inicial_max=p.inicial_max if p.inicial_max > 0 else None,
-        usa_aporte_mensal=p.usa_mensal,
-        aporte_mensal_max=p.mensal_max if p.mensal_max > 0 else None,
+def to_asset(p: AssetPayload) -> Asset:
+    """Convert a payload to the domain Asset model."""
+    return Asset(
+        name=p.name.strip() or "Asset",
+        rate=p.rate_pct / 100.0,
+        period=p.period,
+        basis=p.basis,
+        term_months=p.term_months,
+        tax_mode=p.tax_mode,
+        tax_percent=p.tax_pct / 100.0,
+        fee_mode=p.fee_mode,
+        fee_percent=p.fee_pct / 100.0,
+        initial_min=p.initial_min,
+        initial_max=p.initial_max if p.initial_max > 0 else None,
+        uses_monthly=p.uses_monthly,
+        monthly_max=p.monthly_max if p.monthly_max > 0 else None,
     )
 
 
-def calcular_tma(req: OtimizarRequest) -> float:
-    """Determina a TMA anual a partir do modo escolhido no payload."""
-    if req.tma_modo == "auto":
-        return tma_por_indicadores(req.selic_pct / 100.0, req.ipca_pct / 100.0)
-    return req.tma_manual_pct / 100.0
+def resolve_hurdle_rate(req: OptimizeRequest) -> float:
+    """Determine the annual hurdle rate from the payload's chosen mode."""
+    if req.hurdle_mode == "auto":
+        return hurdle_from_indicators(req.risk_free_pct / 100.0, req.inflation_pct / 100.0)
+    return req.hurdle_manual_pct / 100.0
 
 
-def inflacao_usada(req: OtimizarRequest) -> float:
-    """Inflacao anual usada no retorno real."""
-    if req.tma_modo == "auto":
-        return req.ipca_pct / 100.0
-    return req.inflacao_pct / 100.0
+def resolve_inflation(req: OptimizeRequest) -> float:
+    """Annual inflation used for the real return."""
+    return req.inflation_pct / 100.0

@@ -1,1 +1,1 @@
-"""Pacote de otimizacao de investimentos."""
+"""Investment optimization package."""
