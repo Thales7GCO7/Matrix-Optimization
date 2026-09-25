@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Investment Optimizer — Assets &amp; Scenario</title>
+<title>Otimizador de Investimentos — Ativos &amp; Cenário</title>
 <style>
   :root {
     --bg: #f5f7fa; --card: #ffffff; --border: #d7dbe2;
@@ -39,10 +39,10 @@
   .toolbar { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
   .toolbar .spacer { flex: 1; }
   .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
-  .asset-card { border: 1px solid var(--border); border-radius: 9px; padding: 14px 16px; margin-bottom: 12px; background: #fbfcfe; }
-  .ac-head { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
-  .ac-head input[type=text] { flex: 1; font-weight: 600; }
-  .ac-head button { background: #fdecec; border-color: #f2c4c4; color: var(--crimson); }
+  .cartao-ativo { border: 1px solid var(--border); border-radius: 9px; padding: 14px 16px; margin-bottom: 12px; background: #fbfcfe; }
+  .at-cabecalho { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .at-cabecalho input[type=text] { flex: 1; font-weight: 600; }
+  .at-cabecalho button { background: #fdecec; border-color: #f2c4c4; color: var(--crimson); }
   [hidden] { display: none !important; }
   .banner { border: 1px solid var(--warn-brd); background: var(--warn-bg); color: #7a5900; padding: 12px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
   .banner.err { border-color: #f0a3a3; background: #fdecec; color: #8d1f1f; }
@@ -51,74 +51,74 @@
 </head>
 <body>
 <header>
-  <h1>Assets &amp; Scenario — US Market</h1>
-  <p>Enter capital, hurdle benchmarks (Fed funds + CPI), and the asset list, then run the optimization. Results open on the dashboard.</p>
+  <h1>Ativos &amp; Cenário — Mercado BR</h1>
+  <p>Informe o capital, os benchmarks da taxa mínima (Selic + IPCA) e a lista de ativos, depois execute a otimização. Os resultados abrem no painel.</p>
 </header>
 <nav>
-  <a href="/">Dashboard</a>
-  <a href="/assets" class="active">Assets &amp; Scenario</a>
+  <a href="/">Painel</a>
+  <a href="/ativos" class="active">Ativos &amp; Cenário</a>
 </nav>
 
 <main>
-  <div id="error"></div>
+  <div id="erro"></div>
 
   <section class="card">
-    <h2>Scenario</h2>
+    <h2>Cenário</h2>
     <div class="grid g3">
-      <label>Available capital ($)
-        <input id="capital" type="number" min="0" step="500" value="10000">
+      <label>Capital disponível (R$)
+        <input id="capital-inicial" type="number" min="0" step="500" value="10000">
       </label>
-      <label class="chk"><input id="use-monthly" type="checkbox" checked> Allow monthly deposits</label>
-      <label id="lbl-monthly">Monthly budget ($)
-        <input id="monthly-contrib" type="number" min="0" step="50" value="500">
+      <label class="chk"><input id="usar-mensal" type="checkbox" checked> Permitir aportes mensais</label>
+      <label id="rot-aporte-mensal">Orçamento mensal (R$)
+        <input id="aporte-mensal" type="number" min="0" step="50" value="500">
       </label>
     </div>
 
-    <h2 style="margin-top:18px">Hurdle rate (minimum attractive rate)</h2>
+    <h2 style="margin-top:18px">Taxa mínima de atratividade</h2>
     <div class="grid g3">
-      <label>Hurdle source
-        <select id="hurdle-mode">
-          <option value="auto">Auto (risk-free + inflation)</option>
+      <label>Origem da taxa mínima
+        <select id="modo-taxa-minima">
+          <option value="auto">Automática (taxa livre de risco + inflação)</option>
           <option value="manual">Manual</option>
         </select>
       </label>
-      <label id="lbl-riskfree">Risk-free rate, Fed funds (% p.a.)
-        <input id="riskfree" type="number" min="0" step="0.25" value="4.0">
+      <label id="rot-livre-risco">Taxa livre de risco, Selic (% a.a.)
+        <input id="taxa-livre-risco" type="number" min="0" step="0.25" value="15.0">
       </label>
-      <label id="lbl-inflation">Inflation, CPI (% p.a.)
-        <input id="inflation" type="number" min="0" step="0.25" value="2.5">
+      <label id="rot-inflacao">Inflação, IPCA (% a.a.)
+        <input id="inflacao" type="number" min="0" step="0.25" value="5.0">
       </label>
-      <label id="lbl-hurdle-manual" hidden>Minimum attractive rate (% p.a.)
-        <input id="hurdle-manual" type="number" min="0" step="0.25" value="5.5">
+      <label id="rot-minima-manual" hidden>Taxa mínima de atratividade (% a.a.)
+        <input id="taxa-minima-manual" type="number" min="0" step="0.25" value="10.0">
       </label>
     </div>
-    <p class="hint">Hurdle = the real rate over inflation. Used as the discount rate (NPV), the opportunity cost, and the reserve rate.</p>
+    <p class="hint">Taxa mínima = a taxa real acima da inflação. Usada como taxa de desconto (VPL), custo de oportunidade e taxa da reserva.</p>
   </section>
 
   <section class="card">
-    <h2>Assets</h2>
+    <h2>Ativos</h2>
     <div class="toolbar">
-      <button id="btn-example" type="button">Load sample portfolio</button>
-      <button id="btn-new" type="button">New asset</button>
+      <button id="btn-exemplo" type="button">Carregar carteira de exemplo</button>
+      <button id="btn-novo" type="button">Novo ativo</button>
       <span class="spacer"></span>
-      <button id="btn-optimize" class="primary" type="button">Optimize &amp; view dashboard</button>
+      <button id="btn-otimizar" class="primary" type="button">Otimizar &amp; ver painel</button>
     </div>
-    <p class="hint">Allocation prioritizes the asset with the highest annualized net return (after tax and fees), honoring limits. Rates and percentages in %.</p>
+    <p class="hint">A alocação prioriza o ativo com maior retorno líquido anualizado (após imposto e taxas), respeitando os limites. Taxas e percentuais em %.</p>
     <details>
-      <summary style="cursor:pointer; font-weight:600; color:var(--blue-dark)">How the net value of each asset is calculated</summary>
+      <summary style="cursor:pointer; font-weight:600; color:var(--blue-dark)">Como o valor líquido de cada ativo é calculado</summary>
       <div style="font-size:13px; line-height:1.65; margin-top:8px">
-        <p>One generic pipeline covers every investment type (<code>compute_net_amount</code> in <code>src/tax.py</code>):</p>
+        <p>Um pipeline genérico cobre todo tipo de investimento (<code>calcular_valor_liquido</code> em <code>src/impostos.py</code>):</p>
         <ol>
-          <li><code>gross = lump_sum(A) + series(P)</code> — compounding at the asset's effective annual rate.</li>
-          <li><code>gain = gross − (A + P × n)</code> — only the gain is taxed.</li>
-          <li><code>tax = rate × max(gain, 0)</code> — <code>exempt</code> → 0, <code>fixed</code> → flat %, losses are never taxed.</li>
-          <li><code>fee</code> — <code>none</code> → 0; <code>contribution</code> → % of deposits; <code>assets</code> → % p.a. geometric over the term; <code>gain</code> → % of the gain.</li>
-          <li><code>net = gross − tax − fee</code>; <code>profit = net − contributed</code>.</li>
+          <li><code>bruto = aporte_único(A) + série(P)</code> — capitalização à taxa anual efetiva do ativo.</li>
+          <li><code>ganho = bruto − (A + P × n)</code> — só o ganho é tributado.</li>
+          <li><code>imposto = alíquota × max(ganho, 0)</code> — <code>isento</code> → 0, <code>fixo</code> → % fixa, prejuízos nunca são tributados.</li>
+          <li><code>taxa</code> — <code>nenhuma</code> → 0; <code>aporte</code> → % dos aportes; <code>patrimonio</code> → % a.a. geométrico ao longo do prazo; <code>ganho</code> → % do ganho.</li>
+          <li><code>líquido = bruto − imposto − taxa</code>; <code>lucro = líquido − aportado</code>.</li>
         </ol>
-        <p>Variables: <b>A</b> = initial deposit, <b>P</b> = monthly deposit, <b>n</b> = term in months. After optimizing, the dashboard shows this walkthrough with the actual numbers of each asset.</p>
+        <p>Variáveis: <b>A</b> = aporte inicial, <b>P</b> = aporte mensal, <b>n</b> = prazo em meses. Após otimizar, o painel mostra este passo a passo com os números efetivos de cada ativo.</p>
       </div>
     </details>
-    <div id="assets"></div>
+    <div id="ativos"></div>
   </section>
 </main>
 
@@ -126,166 +126,166 @@
 <script>
 "use strict";
 
-let assets = [];
+let ativos = [];
 
-function assetRow(a) {
-  const card = el("div", {class:"asset-card"}, [
-    el("div", {class:"ac-head"}, [
-      el("input", {type:"text", class:"ac-name", value:a.name, placeholder:"E.g.: US Treasury note"}),
-      el("button", {type:"button", class:"ac-remove", text:"Remove"}),
+function linhaAtivo(a) {
+  const cartao = no("div", {class:"cartao-ativo"}, [
+    no("div", {class:"at-cabecalho"}, [
+      no("input", {type:"text", class:"at-nome", value:a.nome, placeholder:"Ex.: Tesouro Selic"}),
+      no("button", {type:"button", class:"at-remover", text:"Remover"}),
     ]),
-    el("div", {class:"grid g3"}, [
-      el("label", {text:"Rate (% of period)"}, [inp("ac-rate","number",a.rate_pct,{step:0.1})]),
-      el("label", {text:"Compounding"}, [el("select",{class:"ac-period"}, opts(PERIOD_LABEL, a.period))]),
-      el("label", {text:"Basis"}, [el("select",{class:"ac-basis"}, opts(BASIS, a.basis))]),
-      el("label", {text:"Term (months)"}, [inp("ac-term","number",a.term_months,{min:1,step:1})]),
-      el("label", {text:"Income tax"}, [el("select",{class:"ac-tax"}, opts(TAX, a.tax_mode))]),
-      el("label", {class:"ac-fixed", text:"Tax % on gains", hidden:a.tax_mode!=="fixed"},
-        [inp("ac-tax-pct","number",a.tax_pct,{step:0.5,min:0})]),
-      el("label", {text:"Management fee"}, [el("select",{class:"ac-fee"}, opts(FEE, a.fee_mode))]),
-      el("label", {class:"ac-pct-fee", text:"Fee %", hidden:a.fee_mode==="none"},
-        [inp("ac-fee-pct","number",a.fee_pct,{step:0.25,min:0})]),
-      el("label", {text:"Min. initial ($)"}, [inp("ac-min","number",a.initial_min,{min:0,step:50})]),
-      el("label", {text:"Max. initial ($)"}, [inp("ac-max","number",a.initial_max,{min:0,step:50})]),
-      el("label", {class:"chk ac-monthly-lbl"}, [
-        inp("ac-uses-monthly","checkbox",a.uses_monthly,{checked:a.uses_monthly}),
-        el("span", {text:"Allows monthly deposits"}),
+    no("div", {class:"grid g3"}, [
+      no("label", {text:"Taxa (% do período)"}, [campo("at-taxa","number",a.rentabilidade_pct,{step:0.1})]),
+      no("label", {text:"Capitalização"}, [no("select",{class:"at-periodo"}, opcoes(ROTULO_PERIODO, a.periodo))]),
+      no("label", {text:"Base"}, [no("select",{class:"at-base"}, opcoes(BASE, a.base))]),
+      no("label", {text:"Prazo (meses)"}, [campo("at-prazo","number",a.prazo_meses,{min:1,step:1})]),
+      no("label", {text:"Imposto de renda"}, [no("select",{class:"at-imposto"}, opcoes(IMPOSTO, a.modo_imposto))]),
+      no("label", {class:"at-fixo", text:"Alíquota % sobre ganhos", hidden:a.modo_imposto!=="fixo"},
+        [campo("at-imposto-pct","number",a.imposto_pct,{step:0.5,min:0})]),
+      no("label", {text:"Taxa de administração"}, [no("select",{class:"at-txadm"}, opcoes(TAXA, a.modo_taxa))]),
+      no("label", {class:"at-pct-taxa", text:"Taxa %", hidden:a.modo_taxa==="nenhuma"},
+        [campo("at-taxa-pct","number",a.taxa_pct,{step:0.25,min:0})]),
+      no("label", {text:"Mín. inicial (R$)"}, [campo("at-min","number",a.minimo_inicial,{min:0,step:50})]),
+      no("label", {text:"Máx. inicial (R$)"}, [campo("at-max","number",a.maximo_inicial,{min:0,step:50})]),
+      no("label", {class:"chk at-mensal-rot"}, [
+        campo("at-usa-mensal","checkbox",a.usa_mensal,{checked:a.usa_mensal}),
+        no("span", {text:"Aceita aportes mensais"}),
       ]),
-      el("label", {class:"ac-monthlymax", text:"Max. monthly ($)", hidden:!a.uses_monthly},
-        [inp("ac-monthly-max","number",a.monthly_max,{step:25,min:0})]),
+      no("label", {class:"at-maxmensal", text:"Máx. mensal (R$)", hidden:!a.usa_mensal},
+        [campo("at-max-mensal","number",a.maximo_mensal,{step:25,min:0})]),
     ]),
   ]);
-  return card;
+  return cartao;
 }
 
-function renderAssets() {
-  const cont = $("assets");
+function renderizarAtivos() {
+  const cont = $("ativos");
   cont.innerHTML = "";
-  assets.forEach((a, i) => {
-    const card = assetRow(a);
-    card.dataset.idx = i;
-    cont.appendChild(card);
+  ativos.forEach((a, i) => {
+    const cartao = linhaAtivo(a);
+    cartao.dataset.idx = i;
+    cont.appendChild(cartao);
   });
 }
 
-function readRow(idx) {
-  const card = document.querySelector(`.asset-card[data-idx="${idx}"]`);
-  if (!card) return null;
-  const q = (sel) => card.querySelector(sel);
+function lerLinha(idx) {
+  const cartao = document.querySelector(`.cartao-ativo[data-idx="${idx}"]`);
+  if (!cartao) return null;
+  const q = (sel) => cartao.querySelector(sel);
   const num = (sel) => Number(q(sel).value);
   return {
-    name: q(".ac-name").value.trim() || `Asset ${idx+1}`,
-    rate_pct: num(".ac-rate"),
-    period: q(".ac-period").value,
-    basis: q(".ac-basis").value,
-    term_months: num(".ac-term"),
-    tax_mode: q(".ac-tax").value,
-    tax_pct: num(".ac-tax-pct"),
-    fee_mode: q(".ac-fee").value,
-    fee_pct: num(".ac-fee-pct"),
-    initial_min: num(".ac-min"),
-    initial_max: num(".ac-max"),
-    uses_monthly: q(".ac-uses-monthly").checked,
-    monthly_max: num(".ac-monthly-max"),
+    nome: q(".at-nome").value.trim() || `Ativo ${idx+1}`,
+    rentabilidade_pct: num(".at-taxa"),
+    periodo: q(".at-periodo").value,
+    base: q(".at-base").value,
+    prazo_meses: num(".at-prazo"),
+    modo_imposto: q(".at-imposto").value,
+    imposto_pct: num(".at-imposto-pct"),
+    modo_taxa: q(".at-txadm").value,
+    taxa_pct: num(".at-taxa-pct"),
+    minimo_inicial: num(".at-min"),
+    maximo_inicial: num(".at-max"),
+    usa_mensal: q(".at-usa-mensal").checked,
+    maximo_mensal: num(".at-max-mensal"),
   };
 }
 
-function readScenario() {
+function lerCenario() {
   return {
-    capital: Number($("capital").value),
-    use_monthly: $("use-monthly").checked,
-    monthly_contrib: Number($("monthly-contrib").value),
-    hurdle_mode: $("hurdle-mode").value,
-    risk_free_pct: Number($("riskfree").value),
-    inflation_pct: Number($("inflation").value),
-    hurdle_manual_pct: Number($("hurdle-manual").value),
+    capital_inicial: Number($("capital-inicial").value),
+    usar_mensal: $("usar-mensal").checked,
+    aporte_mensal: Number($("aporte-mensal").value),
+    modo_taxa_minima: $("modo-taxa-minima").value,
+    taxa_livre_risco_pct: Number($("taxa-livre-risco").value),
+    inflacao_pct: Number($("inflacao").value),
+    taxa_minima_manual_pct: Number($("taxa-minima-manual").value),
   };
 }
 
-function fillScenario(s) {
-  $("capital").value = s.capital;
-  $("use-monthly").checked = s.use_monthly;
-  $("monthly-contrib").value = s.monthly_contrib;
-  $("hurdle-mode").value = s.hurdle_mode;
-  $("riskfree").value = s.risk_free_pct;
-  $("inflation").value = s.inflation_pct;
-  $("hurdle-manual").value = s.hurdle_manual_pct;
-  refreshScenario();
+function preencherCenario(s) {
+  $("capital-inicial").value = s.capital_inicial;
+  $("usar-mensal").checked = s.usar_mensal;
+  $("aporte-mensal").value = s.aporte_mensal;
+  $("modo-taxa-minima").value = s.modo_taxa_minima;
+  $("taxa-livre-risco").value = s.taxa_livre_risco_pct;
+  $("inflacao").value = s.inflacao_pct;
+  $("taxa-minima-manual").value = s.taxa_minima_manual_pct;
+  atualizarCenario();
 }
 
-function refreshScenario() {
-  const manual = $("hurdle-mode").value === "manual";
-  $("lbl-riskfree").hidden = manual;
-  $("lbl-hurdle-manual").hidden = !manual;
-  const useMonthly = $("use-monthly").checked;
-  $("monthly-contrib").disabled = !useMonthly;
-  $("lbl-monthly").style.opacity = useMonthly ? "1" : ".5";
+function atualizarCenario() {
+  const manual = $("modo-taxa-minima").value === "manual";
+  $("rot-livre-risco").hidden = manual;
+  $("rot-minima-manual").hidden = !manual;
+  const usarMensal = $("usar-mensal").checked;
+  $("aporte-mensal").disabled = !usarMensal;
+  $("rot-aporte-mensal").style.opacity = usarMensal ? "1" : ".5";
 }
 
-function onRowChange(card) {
-  const idx = Number(card.dataset.idx);
-  assets[idx] = readRow(idx);
-  const a = assets[idx];
-  card.querySelector(".ac-fixed").hidden = a.tax_mode !== "fixed";
-  card.querySelector(".ac-pct-fee").hidden = a.fee_mode === "none";
-  card.querySelector(".ac-monthlymax").hidden = !a.uses_monthly;
+function aoMudarLinha(cartao) {
+  const idx = Number(cartao.dataset.idx);
+  ativos[idx] = lerLinha(idx);
+  const a = ativos[idx];
+  cartao.querySelector(".at-fixo").hidden = a.modo_imposto !== "fixo";
+  cartao.querySelector(".at-pct-taxa").hidden = a.modo_taxa === "nenhuma";
+  cartao.querySelector(".at-maxmensal").hidden = !a.usa_mensal;
 }
 
-$("assets").addEventListener("input", (e) => {
-  const card = e.target.closest(".asset-card");
-  if (card) onRowChange(card);
+$("ativos").addEventListener("input", (e) => {
+  const cartao = e.target.closest(".cartao-ativo");
+  if (cartao) aoMudarLinha(cartao);
 });
-$("assets").addEventListener("change", (e) => {
-  const card = e.target.closest(".asset-card");
-  if (card) onRowChange(card);
+$("ativos").addEventListener("change", (e) => {
+  const cartao = e.target.closest(".cartao-ativo");
+  if (cartao) aoMudarLinha(cartao);
 });
-$("assets").addEventListener("click", (e) => {
-  const rem = e.target.closest(".ac-remove");
+$("ativos").addEventListener("click", (e) => {
+  const rem = e.target.closest(".at-remover");
   if (!rem) return;
-  const card = rem.closest(".asset-card");
-  assets.splice(Number(card.dataset.idx), 1);
-  renderAssets();
+  const cartao = rem.closest(".cartao-ativo");
+  ativos.splice(Number(cartao.dataset.idx), 1);
+  renderizarAtivos();
 });
-$("btn-new").addEventListener("click", () => { assets.push({...DEFAULT_ASSET}); renderAssets(); });
-$("btn-example").addEventListener("click", async () => {
+$("btn-novo").addEventListener("click", () => { ativos.push({...ATIVO_PADRAO}); renderizarAtivos(); });
+$("btn-exemplo").addEventListener("click", async () => {
   try {
-    assets = await fetchExamples();
-    renderAssets();
-  } catch (err) { alert("Failed to load the sample portfolio: " + err); }
+    ativos = await buscarExemplos();
+    renderizarAtivos();
+  } catch (err) { alert("Falha ao carregar a carteira de exemplo: " + err); }
 });
-["hurdle-mode","use-monthly"].forEach((id) => $(id).addEventListener("change", refreshScenario));
+["modo-taxa-minima","usar-mensal"].forEach((id) => $(id).addEventListener("change", atualizarCenario));
 
-$("btn-optimize").addEventListener("click", async () => {
-  for (let i = 0; i < assets.length; i++) assets[i] = readRow(i);
-  const scenario = readScenario();
-  const btn = $("btn-optimize");
-  btn.textContent = "Optimizing...";
+$("btn-otimizar").addEventListener("click", async () => {
+  for (let i = 0; i < ativos.length; i++) ativos[i] = lerLinha(i);
+  const cenario = lerCenario();
+  const btn = $("btn-otimizar");
+  btn.textContent = "Otimizando...";
   btn.disabled = true;
   try {
-    const j = await runOptimization(scenario, assets);
-    saveState({scenario, assets, result: j});
+    const j = await executarOtimizacao(cenario, ativos);
+    salvarEstado({cenario, ativos, resultado: j});
     location.href = "/";
   } catch (err) {
-    showError(err.message);
+    mostrarErro(err.message);
   } finally {
-    btn.textContent = "Optimize & view dashboard";
+    btn.textContent = "Otimizar & ver painel";
     btn.disabled = false;
   }
 });
 
 (async function init() {
-  const state = loadState();
-  fillScenario(state.scenario);
-  if (state.assets.length) {
-    assets = state.assets;
+  const estado = carregarEstado();
+  preencherCenario(estado.cenario);
+  if (estado.ativos.length) {
+    ativos = estado.ativos;
   } else {
     try {
-      assets = await fetchExamples();
+      ativos = await buscarExemplos();
     } catch (e) {
-      assets = [{...DEFAULT_ASSET}];
+      ativos = [{...ATIVO_PADRAO}];
     }
   }
-  renderAssets();
+  renderizarAtivos();
 })();
 </script>
 </body>

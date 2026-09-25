@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Investment Optimizer — Dashboard</title>
+<title>Otimizador de Investimentos — Painel</title>
 <style>
   :root {
     --bg: #f5f7fa; --card: #ffffff; --border: #d7dbe2;
@@ -29,15 +29,15 @@
   [hidden] { display: none !important; }
   .banner { border: 1px solid var(--warn-brd); background: var(--warn-bg); color: #7a5900; padding: 12px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 14px; }
   .banner.err { border-color: #f0a3a3; background: #fdecec; color: #8d1f1f; }
-  .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 6px 0 4px; }
-  .metric { border: 1px solid var(--border); border-radius: 9px; padding: 12px 13px; background: #fbfcfe; }
-  .metric .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
-  .metric .v { font-size: 18px; font-weight: 700; margin-top: 4px; }
-  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  .chart-grid figure { margin: 0; border: 1px solid var(--border); border-radius: 8px; background: #fff; padding: 10px; }
-  .chart-grid figure.wide { grid-column: 1 / -1; }
-  .chart-grid figcaption { font-size: 13px; font-weight: 600; color: var(--blue-dark); padding: 2px 4px 8px; }
-  .chart-grid img { width: 100%; height: auto; display: block; }
+  .metricas { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 6px 0 4px; }
+  .metrica { border: 1px solid var(--border); border-radius: 9px; padding: 12px 13px; background: #fbfcfe; }
+  .metrica .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .metrica .v { font-size: 18px; font-weight: 700; margin-top: 4px; }
+  .grade-graficos { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .grade-graficos figure { margin: 0; border: 1px solid var(--border); border-radius: 8px; background: #fff; padding: 10px; }
+  .grade-graficos figure.wide { grid-column: 1 / -1; }
+  .grade-graficos figcaption { font-size: 13px; font-weight: 600; color: var(--blue-dark); padding: 2px 4px 8px; }
+  .grade-graficos img { width: 100%; height: auto; display: block; }
   button { font: inherit; cursor: pointer; border-radius: 7px; border: 1px solid var(--border); background: #eef1f6; color: var(--txt); padding: 9px 14px; }
   button:hover { background: #e2e7ee; }
   button.primary { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; padding: 11px 22px; font-size: 15px; }
@@ -49,102 +49,102 @@
   th:first-child, td:first-child { text-align: left; }
   tr:hover td { background: #f3f7fd; }
   .tbl-wrap { overflow-x: auto; }
-  .usage ul { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.7; }
+  .uso ul { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.7; }
   details { margin-top: 16px; border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; background: #fbfcfe; }
   summary { cursor: pointer; font-weight: 600; color: var(--blue-dark); }
   .gloss { font-size: 13px; line-height: 1.65; }
   .gloss p { margin: 6px 0; }
   .loading { color: var(--muted); font-size: 14px; }
-  @media (max-width: 900px) { .metrics { grid-template-columns: repeat(2, 1fr); } .chart-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .metricas { grid-template-columns: repeat(2, 1fr); } .grade-graficos { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <header>
-  <h1>Investment Optimizer — US Market</h1>
-  <p>Portfolio dashboard: capitalization growth, capital allocation, and performance vs. the hurdle rate (Fed funds + CPI).</p>
+  <h1>Otimizador de Investimentos — Mercado BR</h1>
+  <p>Painel da carteira: crescimento da capitalização, alocação do capital e desempenho vs. a taxa mínima (Selic + IPCA).</p>
 </header>
 <nav>
-  <a href="/" class="active">Dashboard</a>
-  <a href="/assets">Assets &amp; Scenario</a>
+  <a href="/" class="active">Painel</a>
+  <a href="/ativos">Ativos &amp; Cenário</a>
 </nav>
 
 <main>
-  <div id="error"></div>
-  <div id="warnings"></div>
+  <div id="erro"></div>
+  <div id="avisos"></div>
 
   <section class="card">
     <div class="toolbar">
-      <h2 style="margin:0">Key figures</h2>
+      <h2 style="margin:0">Números principais</h2>
       <span class="spacer"></span>
-      <button id="btn-edit" type="button">Edit assets &amp; scenario</button>
-      <button id="btn-refresh" class="primary" type="button">Re-run optimization</button>
+      <button id="btn-editar" type="button">Editar ativos &amp; cenário</button>
+      <button id="btn-reexecutar" class="primary" type="button">Executar otimização de novo</button>
     </div>
-    <div class="metrics" id="metrics-r1"></div>
-    <div class="metrics" id="metrics-r2" style="margin-top:12px"></div>
-    <p class="hint" id="dash-meta"></p>
+    <div class="metricas" id="metricas-l1"></div>
+    <div class="metricas" id="metricas-l2" style="margin-top:12px"></div>
+    <p class="hint" id="painel-meta"></p>
   </section>
 
   <section class="card">
-    <h2>Charts</h2>
-    <div class="chart-grid">
+    <h2>Gráficos</h2>
+    <div class="grade-graficos">
       <figure class="wide">
-        <figcaption>Capitalization — net wealth vs. hurdle (line)</figcaption>
-        <img id="g-equity" alt="Wealth growth" hidden>
+        <figcaption>Capitalização — riqueza líquida vs. taxa mínima (linha)</figcaption>
+        <img id="g-evolucao" alt="Crescimento da riqueza" hidden>
       </figure>
       <figure class="wide">
-        <figcaption>Capital allocation per asset (bars)</figcaption>
-        <img id="g-alloc" alt="Capital allocation" hidden>
+        <figcaption>Alocação de capital por ativo (barras)</figcaption>
+        <img id="g-alocacao" alt="Alocação de capital" hidden>
       </figure>
       <figure>
-        <figcaption>Resource allocation by asset (pie)</figcaption>
-        <img id="g-pie" alt="Allocation pie" hidden>
+        <figcaption>Alocação de recursos por ativo (pizza)</figcaption>
+        <img id="g-pizza" alt="Pizza da alocação" hidden>
       </figure>
       <figure>
-        <figcaption>Net profit vs. hurdle per asset (bars)</figcaption>
-        <img id="g-profit" alt="Profit vs hurdle" hidden>
+        <figcaption>Lucro líquido vs. taxa mínima por ativo (barras)</figcaption>
+        <img id="g-lucro" alt="Lucro vs. taxa mínima" hidden>
       </figure>
       <figure class="wide">
-        <figcaption>Profit maximization — LP plane: constraints, feasible region, vertices, tangent (lines)</figcaption>
-        <img id="g-lp" alt="LP maximization plane" hidden>
+        <figcaption>Maximização do lucro — plano do PL: restrições, região viável, vértices, tangente (linhas)</figcaption>
+        <img id="g-pl" alt="Plano de maximização do PL" hidden>
       </figure>
     </div>
   </section>
 
   <section class="card">
-    <h2>Capital usage</h2>
-    <div class="usage" id="usage"></div>
+    <h2>Uso do capital</h2>
+    <div class="uso" id="uso"></div>
   </section>
 
   <section class="card">
-    <h2>Allocation and performance per asset</h2>
-    <div class="tbl-wrap"><table id="tbl-perf"></table></div>
-    <p class="hint" id="tbl-perf-caption"></p>
+    <h2>Alocação e desempenho por ativo</h2>
+    <div class="tbl-wrap"><table id="tbl-desempenho"></table></div>
+    <p class="hint" id="tbl-desempenho-legenda"></p>
   </section>
 
   <section class="card">
-    <h2>Deductions (income tax + management fee)</h2>
-    <div class="tbl-wrap"><table id="tbl-ded"></table></div>
+    <h2>Deduções (imposto de renda + taxa de administração)</h2>
+    <div class="tbl-wrap"><table id="tbl-deducoes"></table></div>
     <details>
-      <summary>What the metrics mean</summary>
+      <summary>O que as métricas significam</summary>
       <div class="gloss">
-        <p><b>ROI</b>: net profit / invested capital over the period. <b>Annualized ROI</b>: equivalent per-year return (IRR), comparable across terms.</p>
-        <p><b>NPV</b>: present value of the cash flow discounted at the hurdle rate. NPV &gt; 0 adds value beyond the opportunity cost.</p>
-        <p><b>IRR</b>: per-year rate that zeroes the NPV. Desirable when &gt; hurdle.</p>
-        <p><b>Payback</b>: month when redemption recovers the capital (simple/discounted). "n/r" = term does not recover.</p>
-        <p><b>PI</b> (profitability index): NPV/capital + 1. Above 1 pays the opportunity cost.</p>
-        <p><b>Alpha</b>: annualized return &minus; hurdle. <b>Hurdle line</b>: what the same deposit flow would earn at the minimum rate.</p>
+        <p><b>ROI</b>: lucro líquido / capital investido no período. <b>ROI anualizado</b>: retorno equivalente por ano (TIR), comparável entre prazos.</p>
+        <p><b>VPL</b>: valor presente do fluxo de caixa descontado pela taxa mínima. VPL &gt; 0 agrega valor além do custo de oportunidade.</p>
+        <p><b>TIR</b>: taxa anual que zera o VPL. Desejável quando &gt; taxa mínima.</p>
+        <p><b>Payback</b>: mês em que o resgate recupera o capital (simples/descontado). "s/r" = o prazo não recupera.</p>
+        <p><b>IL</b> (índice de lucratividade): VPL/capital + 1. Acima de 1 supera o custo de oportunidade.</p>
+        <p><b>Alpha</b>: retorno anualizado &minus; taxa mínima. <b>Linha da taxa mínima</b>: quanto o mesmo fluxo de aportes renderia na taxa mínima.</p>
       </div>
     </details>
   </section>
 
   <section class="card">
-    <h2>How the net value is calculated</h2>
-    <div class="gloss" id="calc-logic"><p class="loading">Run the optimization to see the formulas and per-asset steps.</p></div>
+    <h2>Como o valor líquido é calculado</h2>
+    <div class="gloss" id="logica-calculo"><p class="loading">Execute a otimização para ver as fórmulas e o passo a passo por ativo.</p></div>
   </section>
 
   <section class="card">
-    <h2>Profit maximization — resolution (LP)</h2>
-    <div class="gloss" id="lp-model"><p class="loading">Run the optimization to see the objective, constraints, vertices, and optimum.</p></div>
+    <h2>Maximização do lucro — resolução (PL)</h2>
+    <div class="gloss" id="modelo-pl"><p class="loading">Execute a otimização para ver o objetivo, as restrições, os vértices e o ótimo.</p></div>
   </section>
 </main>
 
@@ -152,49 +152,49 @@
 <script>
 "use strict";
 
-$("btn-edit").addEventListener("click", () => { location.href = "/assets"; });
-$("btn-refresh").addEventListener("click", async () => {
-  const btn = $("btn-refresh");
-  btn.textContent = "Running...";
+$("btn-editar").addEventListener("click", () => { location.href = "/ativos"; });
+$("btn-reexecutar").addEventListener("click", async () => {
+  const btn = $("btn-reexecutar");
+  btn.textContent = "Executando...";
   btn.disabled = true;
   try {
-    const state = loadState();
-    const assets = state.assets.length ? state.assets : await fetchExamples();
-    const j = await runOptimization(state.scenario, assets);
-    saveState({scenario: state.scenario, assets, result: j});
-    renderResult(j);
-    stampMeta(state.scenario);
+    const estado = carregarEstado();
+    const ativos = estado.ativos.length ? estado.ativos : await buscarExemplos();
+    const j = await executarOtimizacao(estado.cenario, ativos);
+    salvarEstado({cenario: estado.cenario, ativos, resultado: j});
+    renderizarResultado(j);
+    carimbarMeta(estado.cenario);
   } catch (err) {
-    showError("Optimization failed: " + err.message);
+    mostrarErro("Falha na otimização: " + err.message);
   } finally {
-    btn.textContent = "Re-run optimization";
+    btn.textContent = "Executar otimização de novo";
     btn.disabled = false;
   }
 });
 
-function stampMeta(scenario) {
-  $("dash-meta").textContent =
-    `Scenario: $${fmt(scenario.capital)} capital, $${fmt(scenario.monthly_contrib)}/mo` +
-    (scenario.use_monthly ? "" : " (monthly off)") +
-    `, hurdle ${scenario.hurdle_mode} (risk-free ${fmt(scenario.risk_free_pct)}%, inflation ${fmt(scenario.inflation_pct)}%).`;
+function carimbarMeta(cenario) {
+  $("painel-meta").textContent =
+    `Cenário: R$ ${fmt(cenario.capital_inicial)} de capital, R$ ${fmt(cenario.aporte_mensal)}/mês` +
+    (cenario.usar_mensal ? "" : " (aportes mensais desligados)") +
+    `, taxa mínima ${cenario.modo_taxa_minima} (taxa livre de risco ${fmt(cenario.taxa_livre_risco_pct)}%, inflação ${fmt(cenario.inflacao_pct)}%).`;
 }
 
 (async function init() {
-  const state = loadState();
-  if (state.result) {
-    renderResult(state.result);
-    stampMeta(state.scenario);
+  const estado = carregarEstado();
+  if (estado.resultado) {
+    renderizarResultado(estado.resultado);
+    carimbarMeta(estado.cenario);
     return;
   }
-  // First visit: optimize the sample US portfolio so the dashboard is alive.
+  // Primeira visita: otimiza a carteira BR de exemplo para o painel já abrir com dados.
   try {
-    const assets = await fetchExamples();
-    const j = await runOptimization(state.scenario, assets);
-    saveState({scenario: state.scenario, assets, result: j});
-    renderResult(j);
-    stampMeta(state.scenario);
+    const ativos = await buscarExemplos();
+    const j = await executarOtimizacao(estado.cenario, ativos);
+    salvarEstado({cenario: estado.cenario, ativos, resultado: j});
+    renderizarResultado(j);
+    carimbarMeta(estado.cenario);
   } catch (err) {
-    showError("Could not load the dashboard: " + err.message + " — open Assets & Scenario to set up.");
+    mostrarErro("Não foi possível carregar o painel: " + err.message + " — abra Ativos & Cenário para configurar.");
   }
 })();
 </script>

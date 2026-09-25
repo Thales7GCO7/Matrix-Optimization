@@ -1,274 +1,274 @@
 "use strict";
-/* Shared helpers, API calls, state, and result rendering for both pages. */
+/* Utilitários compartilhados, chamadas à API, estado e renderização dos resultados (ambas as páginas). */
 
-const PERIODS = ["annual","semiannual","quarterly","bimonthly","monthly","weekly","daily"];
-const PERIOD_LABEL = {annual:"Annual", semiannual:"Semiannual", quarterly:"Quarterly", bimonthly:"Bimonthly",
-  monthly:"Monthly", weekly:"Weekly", daily:"Daily"};
-const TAX = {exempt:"Exempt", fixed:"Flat % on gains"};
-const FEE = {none:"No fee", contribution:"% of deposits", assets:"% p.a. of assets",
-  gain:"% of gains"};
-const BASIS = {effective:"Effective", nominal:"Nominal"};
+const PERIODOS = ["anual","semestral","trimestral","bimestral","mensal","semanal","diaria"];
+const ROTULO_PERIODO = {anual:"Anual", semestral:"Semestral", trimestral:"Trimestral", bimestral:"Bimestral",
+  mensal:"Mensal", semanal:"Semanal", diaria:"Diária"};
+const IMPOSTO = {isento:"Isento", fixo:"Alíquota % sobre ganhos"};
+const TAXA = {nenhuma:"Sem taxa", aporte:"% dos aportes", patrimonio:"% a.a. do patrimônio",
+  ganho:"% dos ganhos"};
+const BASE = {efetiva:"Efetiva", nominal:"Nominal"};
 
-const DEFAULT_ASSET = {
-  name:"", rate_pct:10.0, period:"annual", basis:"effective", term_months:12,
-  tax_mode:"exempt", tax_pct:0.0, fee_mode:"none", fee_pct:0.0,
-  initial_min:0.0, initial_max:0.0, uses_monthly:false, monthly_max:0.0,
+const ATIVO_PADRAO = {
+  nome:"", rentabilidade_pct:10.0, periodo:"anual", base:"efetiva", prazo_meses:12,
+  modo_imposto:"isento", imposto_pct:0.0, modo_taxa:"nenhuma", taxa_pct:0.0,
+  minimo_inicial:0.0, maximo_inicial:0.0, usa_mensal:false, maximo_mensal:0.0,
 };
 
-const DEFAULT_SCENARIO = {
-  capital:10000, use_monthly:true, monthly_contrib:500,
-  hurdle_mode:"auto", risk_free_pct:4.0, inflation_pct:2.5, hurdle_manual_pct:5.5,
+const CENARIO_PADRAO = {
+  capital_inicial:10000, usar_mensal:true, aporte_mensal:500,
+  modo_taxa_minima:"auto", taxa_livre_risco_pct:15.0, inflacao_pct:5.0, taxa_minima_manual_pct:10.0,
 };
 
-const STATE_KEY = "optState";
-/* Bump when the stored result shape/charts change so stale cached
-   results are re-optimized instead of rendered. */
-const STATE_VERSION = 4;
+const CHAVE_ESTADO = "estadoOtimizador";
+/* Incremente quando o formato do resultado/gráficos armazenado mudar, para que
+   resultados antigos em cache sejam reotimizados em vez de renderizados. */
+const VERSAO_ESTADO = 6;
 
 const $ = (id) => document.getElementById(id);
-const fmt = (v, d=2) => v == null ? "-" : Number(v).toLocaleString("en-US", {minimumFractionDigits:d, maximumFractionDigits:d});
-const fmtPct = (v, d=2) => v == null ? "-" : (v*100).toLocaleString("en-US", {minimumFractionDigits:d, maximumFractionDigits:d}) + "%";
+const fmt = (v, d=2) => v == null ? "-" : Number(v).toLocaleString("pt-BR", {minimumFractionDigits:d, maximumFractionDigits:d});
+const fmtPct = (v, d=2) => v == null ? "-" : (v*100).toLocaleString("pt-BR", {minimumFractionDigits:d, maximumFractionDigits:d}) + "%";
 
-function el(tag, attrs={}, children=[]) {
-  const node = document.createElement(tag);
+function no(tag, attrs={}, filhos=[]) {
+  const el = document.createElement(tag);
   for (const [k,v] of Object.entries(attrs)) {
-    if (k === "class") node.className = v;
-    else if (k === "text") node.textContent = v;
-    else if (k === "html") node.innerHTML = v;
-    else if (k in node && typeof node[k] !== "function") node[k] = v;
-    else if (v != null) node.setAttribute(k, v);
+    if (k === "class") el.className = v;
+    else if (k === "text") el.textContent = v;
+    else if (k === "html") el.innerHTML = v;
+    else if (k in el && typeof el[k] !== "function") el[k] = v;
+    else if (v != null) el.setAttribute(k, v);
   }
-  for (const c of children) node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
-  return node;
+  for (const c of filhos) el.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  return el;
 }
 
-function opts(map, val) {
-  return Object.entries(map).map(([k,l]) => el("option", {value:k, text:l, selected: k===val}));
+function opcoes(mapa, val) {
+  return Object.entries(mapa).map(([k,l]) => no("option", {value:k, text:l, selected: k===val}));
 }
-function inp(cls, type, value, extra={}) {
-  return el("input", Object.assign({type, class:cls, value}, extra));
+function campo(cls, tipo, valor, extra={}) {
+  return no("input", Object.assign({type:tipo, class:cls, value:valor}, extra));
 }
 
-function loadState() {
+function carregarEstado() {
   try {
-    const raw = localStorage.getItem(STATE_KEY);
-    if (raw) {
-      const s = JSON.parse(raw);
-      if (s.v === STATE_VERSION) return s;
+    const bruto = localStorage.getItem(CHAVE_ESTADO);
+    if (bruto) {
+      const s = JSON.parse(bruto);
+      if (s.v === VERSAO_ESTADO) return s;
     }
-  } catch (e) { /* ignore corrupt state */ }
-  return {v: STATE_VERSION, scenario:{...DEFAULT_SCENARIO}, assets:[], result:null};
+  } catch (e) { /* ignora estado corrompido */ }
+  return {v: VERSAO_ESTADO, cenario:{...CENARIO_PADRAO}, ativos:[], resultado:null};
 }
 
-function saveState(state) {
-  try { localStorage.setItem(STATE_KEY, JSON.stringify({...state, v: STATE_VERSION})); } catch (e) { /* storage full/blocked */ }
+function salvarEstado(estado) {
+  try { localStorage.setItem(CHAVE_ESTADO, JSON.stringify({...estado, v: VERSAO_ESTADO})); } catch (e) { /* armazenamento cheio/bloqueado */ }
 }
 
-async function fetchExamples() {
-  const r = await fetch("/api/examples");
+async function buscarExemplos() {
+  const r = await fetch("/api/exemplos");
   const j = await r.json();
-  return j.assets.map((x) => ({...x}));
+  return j.ativos.map((x) => ({...x}));
 }
 
-async function runOptimization(scenario, assets) {
+async function executarOtimizacao(cenario, ativos) {
   const payload = {
-    capital: Number(scenario.capital),
-    use_monthly: Boolean(scenario.use_monthly),
-    monthly_contrib: Number(scenario.monthly_contrib),
-    hurdle_mode: scenario.hurdle_mode,
-    risk_free_pct: Number(scenario.risk_free_pct),
-    inflation_pct: Number(scenario.inflation_pct),
-    hurdle_manual_pct: Number(scenario.hurdle_manual_pct),
-    assets,
+    capital_inicial: Number(cenario.capital_inicial),
+    usar_mensal: Boolean(cenario.usar_mensal),
+    aporte_mensal: Number(cenario.aporte_mensal),
+    modo_taxa_minima: cenario.modo_taxa_minima,
+    taxa_livre_risco_pct: Number(cenario.taxa_livre_risco_pct),
+    inflacao_pct: Number(cenario.inflacao_pct),
+    taxa_minima_manual_pct: Number(cenario.taxa_minima_manual_pct),
+    ativos,
   };
-  const r = await fetch("/api/optimize", {
+  const r = await fetch("/api/otimizar", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify(payload),
   });
   const j = await r.json();
   if (!r.ok) {
-    throw new Error(j.error ||
-      (Array.isArray(j.detail) ? j.detail.map((d) => d.msg).join("; ") : (j.detail || "Unknown error")));
+    throw new Error(j.erro ||
+      (Array.isArray(j.detail) ? j.detail.map((d) => d.msg).join("; ") : (j.detail || "Erro desconhecido")));
   }
   return j;
 }
 
-function mkMetric(label, value, formatter) {
-  return el("div", {class:"metric"}, [
-    el("div", {class:"k", text:label}),
-    el("div", {class:"v", text:formatter(value)}),
+function criarMetrica(rotulo, valor, formatador) {
+  return no("div", {class:"metrica"}, [
+    no("div", {class:"k", text:rotulo}),
+    no("div", {class:"v", text:formatador(valor)}),
   ]);
 }
 
-function tab(head, rows) {
-  const t = el("table");
-  t.appendChild(el("thead", {}, [el("tr", {}, head.map((h) => el("th", {text:h})))]));
-  const tb = el("tbody");
-  for (const r of rows) tb.appendChild(el("tr", {}, r.map((cell) => el("td", {text: cell}))));
+function tabela(cabecalho, linhas) {
+  const t = no("table");
+  t.appendChild(no("thead", {}, [no("tr", {}, cabecalho.map((h) => no("th", {text:h})))]));
+  const tb = no("tbody");
+  for (const r of linhas) tb.appendChild(no("tr", {}, r.map((cel) => no("td", {text: cel}))));
   t.appendChild(tb);
   return t;
 }
 
-/* Renders an /api/optimize response into the dashboard DOM. */
-function renderResult(j) {
-  const {portfolio:c, scenario, usage, metrics, charts, warnings} = j;
-  $("error").innerHTML = "";
+/* Renderiza uma resposta do /api/otimizar no DOM do painel. */
+function renderizarResultado(j) {
+  const {carteira:c, cenario, uso, metricas, graficos, avisos} = j;
+  $("erro").innerHTML = "";
 
-  $("warnings").innerHTML = "";
-  (warnings||[]).forEach((w) => $("warnings").appendChild(el("div", {class:"banner", text:w})));
+  $("avisos").innerHTML = "";
+  (avisos||[]).forEach((w) => $("avisos").appendChild(no("div", {class:"banner", text:w})));
 
-  const r1 = $("metrics-r1"); r1.innerHTML = "";
-  r1.appendChild(mkMetric("Total plan capital", c.invested_capital, fmt));
-  r1.appendChild(mkMetric("Reserve (hurdle)", c.reserve, fmt));
-  r1.appendChild(mkMetric("Final net wealth", c.net_amount, fmt));
-  r1.appendChild(mkMetric("Net profit", c.net_profit, fmt));
-  r1.appendChild(mkMetric("ROI", c.roi, fmtPct));
+  const l1 = $("metricas-l1"); l1.innerHTML = "";
+  l1.appendChild(criarMetrica("Capital total do plano", c.capital_investido, fmt));
+  l1.appendChild(criarMetrica("Reserva (taxa mínima)", c.reserva, fmt));
+  l1.appendChild(criarMetrica("Riqueza líquida final", c.valor_liquido, fmt));
+  l1.appendChild(criarMetrica("Lucro líquido", c.lucro_liquido, fmt));
+  l1.appendChild(criarMetrica("ROI", c.roi, fmtPct));
 
-  const r2 = $("metrics-r2"); r2.innerHTML = "";
-  r2.appendChild(mkMetric("Annualized ROI (IRR)", c.annualized_roi, fmtPct));
-  r2.appendChild(mkMetric("NPV", c.npv, fmt));
-  r2.appendChild(mkMetric("Alpha over hurdle", c.alpha, fmtPct));
-  r2.appendChild(mkMetric("Hurdle used", scenario.hurdle_pct, (v) => fmt(v) + "%"));
-  r2.appendChild(mkMetric("Hurdle line (same flow)", c.hurdle_profit, fmt));
+  const l2 = $("metricas-l2"); l2.innerHTML = "";
+  l2.appendChild(criarMetrica("ROI anualizado (TIR)", c.roi_anualizado, fmtPct));
+  l2.appendChild(criarMetrica("VPL", c.vpl, fmt));
+  l2.appendChild(criarMetrica("Alpha sobre a taxa mínima", c.alpha, fmtPct));
+  l2.appendChild(criarMetrica("Taxa mínima usada", cenario.taxa_minima_pct, (v) => fmt(v) + "%"));
+  l2.appendChild(criarMetrica("Linha da taxa mínima (mesmo fluxo)", c.lucro_taxa_minima, fmt));
 
-  const ul = el("ul", {}, [
-    el("li", {text:`Initial capital: ${fmt(usage.invested_capital)} of ${fmt(scenario.initial_capital)} available`}),
+  const ul = no("ul", {}, [
+    no("li", {text:`Capital inicial: ${fmt(uso.capital_investido)} de ${fmt(cenario.capital_inicial)} disponíveis`}),
   ]);
-  if (scenario.available_monthly > 0)
-    ul.appendChild(el("li", {text:`Monthly deposits: ${fmt(usage.monthly_contribs)} of ${fmt(scenario.available_monthly)} available`}));
-  ul.appendChild(el("li", {text:`Reserve: ${fmt(usage.reserve)} (earning the ${fmt(scenario.hurdle_pct)}% hurdle)`}));
-  ul.appendChild(el("li", {text:`Excess profit vs hurdle: ${fmt(usage.excess_profit)}`}));
-  ul.appendChild(el("li", {text:`Had all capital stayed at the hurdle, profit would be ${fmt(c.hurdle_profit)}.`}));
-  $("usage").innerHTML = "";
-  $("usage").appendChild(ul);
+  if (cenario.mensal_disponivel > 0)
+    ul.appendChild(no("li", {text:`Aportes mensais: ${fmt(uso.aportes_mensais)} de ${fmt(cenario.mensal_disponivel)} disponíveis`}));
+  ul.appendChild(no("li", {text:`Reserva: ${fmt(uso.reserva)} (rendendo a taxa mínima de ${fmt(cenario.taxa_minima_pct)}%)`}));
+  ul.appendChild(no("li", {text:`Lucro excedente vs. taxa mínima: ${fmt(uso.lucro_excedente)}`}));
+  ul.appendChild(no("li", {text:`Se todo o capital tivesse ficado na taxa mínima, o lucro seria ${fmt(c.lucro_taxa_minima)}.`}));
+  $("uso").innerHTML = "";
+  $("uso").appendChild(ul);
 
-  const head = ["Asset","Initial ($)","Monthly ($)","Net wealth ($)","Profit ($)","ROI","ROI p.a.","NPV ($)","IRR p.a.","Payback","PI","Alpha"];
-  const perfRows = metrics.map((i) => [
-    i.is_reserve ? i.name + " ↗" : i.name,
-    fmt(i.initial_contrib), fmt(i.monthly_contrib), fmt(i.net_amount), fmt(i.net_profit),
-    fmtPct(i.roi), fmtPct(i.annualized_roi), fmt(i.npv), fmtPct(i.annual_irr),
-    i.simple_payback != null ? `${(i.simple_payback|0)}m / ${(i.discounted_payback|0)}m` : "n/r",
-    i.profitability_index != null ? fmt(i.profitability_index) : "-",
+  const cab = ["Ativo","Inicial (R$)","Mensal (R$)","Riqueza líq. (R$)","Lucro (R$)","ROI","ROI a.a.","VPL (R$)","TIR a.a.","Payback","IL","Alpha"];
+  const linhasDes = metricas.map((i) => [
+    i.eh_reserva ? i.nome + " ↗" : i.nome,
+    fmt(i.aporte_inicial), fmt(i.aporte_mensal), fmt(i.valor_liquido), fmt(i.lucro_liquido),
+    fmtPct(i.roi), fmtPct(i.roi_anualizado), fmt(i.vpl), fmtPct(i.tir_anual),
+    i.payback_simples != null ? `${(i.payback_simples|0)}m / ${(i.payback_descontado|0)}m` : "s/r",
+    i.indice_lucratividade != null ? fmt(i.indice_lucratividade) : "-",
     fmtPct(i.alpha),
   ]);
-  $("tbl-perf").replaceChildren(tab(head, perfRows));
-  $("tbl-perf-caption").textContent = "Payback in months (simple/discounted). ↗ = hurdle reserve. 'n/r' = term does not recover capital.";
+  $("tbl-desempenho").replaceChildren(tabela(cab, linhasDes));
+  $("tbl-desempenho-legenda").textContent = "Payback em meses (simples/descontado). ↗ = reserva na taxa mínima. 's/r' = o prazo não recupera o capital.";
 
-  const pct = (x) => Number.isFinite(x) ? (x*100).toLocaleString("en-US",{maximumFractionDigits:1}) + "%" : "-";
-  const dedHead = ["Asset","Gross gain ($)","Income tax ($)","Rate","Mgmt fee ($)"];
-  const dedRows = metrics.map((i) => [i.name, fmt(i.gross_gain), fmt(i.tax), pct(i.tax_rate), fmt(i.fee)]);
-  $("tbl-ded").replaceChildren(tab(dedHead, dedRows));
+  const pct = (x) => Number.isFinite(x) ? (x*100).toLocaleString("pt-BR",{maximumFractionDigits:1}) + "%" : "-";
+  const cabDed = ["Ativo","Ganho bruto (R$)","Imposto de renda (R$)","Alíquota","Taxa adm. (R$)"];
+  const linhasDed = metricas.map((i) => [i.nome, fmt(i.ganho_bruto), fmt(i.imposto), pct(i.aliquota), fmt(i.taxa)]);
+  $("tbl-deducoes").replaceChildren(tabela(cabDed, linhasDed));
 
-  const setImg = (id, uri) => { const img = $(id); img.src = uri || ""; img.hidden = !uri; };
-  setImg("g-equity", charts.equity);
-  setImg("g-pie", charts.allocation_pie);
-  setImg("g-alloc", charts.allocation);
-  setImg("g-profit", charts.profit_vs_hurdle);
-  setImg("g-lp", charts.lp_max);
+  const definirImg = (id, uri) => { const img = $(id); img.src = uri || ""; img.hidden = !uri; };
+  definirImg("g-evolucao", graficos.evolucao);
+  definirImg("g-pizza", graficos.alocacao_pizza);
+  definirImg("g-alocacao", graficos.alocacao);
+  definirImg("g-lucro", graficos.lucro_vs_taxa_minima);
+  definirImg("g-pl", graficos.pl_max);
 
-  renderCalculationLogic(j);
-  renderLpModel(j);
+  renderizarLogicaCalculo(j);
+  renderizarModeloPL(j);
 }
 
-/* Renders the 2-asset LP resolution: objective, profit functions,
-   constraints, vertices table, tangent/optimum, and solver steps.
-   No-op on pages without the #lp-model section. */
-function renderLpModel(j) {
-  const section = $("lp-model");
-  if (!section) return;
-  const m = j.lp_model;
-  section.innerHTML = "";
-  if (!m || !m.feasible) {
-    section.appendChild(el("p", {class:"hint", text:
-      (m && m.reason) ? ("LP plane unavailable: " + m.reason)
-                      : "LP plane unavailable for this scenario (needs capital and at least one asset)."}));
+/* Renderiza a resolução do PL de 2 ativos: objetivo, funções de lucro,
+   restrições, tabela de vértices, tangente/ótimo e passos do solver.
+   Não faz nada em páginas sem a seção #modelo-pl. */
+function renderizarModeloPL(j) {
+  const secao = $("modelo-pl");
+  if (!secao) return;
+  const m = j.modelo_pl;
+  secao.innerHTML = "";
+  if (!m || !m.viavel) {
+    secao.appendChild(no("p", {class:"hint", text:
+      (m && m.motivo) ? ("Plano do PL indisponível: " + m.motivo)
+                      : "Plano do PL indisponível para este cenário (é preciso capital e ao menos um ativo)."}));
     return;
   }
-  section.appendChild(el("p", {}, [
-    document.createTextNode("Plane of the two most efficient assets — "),
-    el("b", {text:`x1 = ${m.asset_x}`}), document.createTextNode(", "),
-    el("b", {text:`x2 = ${m.asset_y}`}), document.createTextNode("."),
+  secao.appendChild(no("p", {}, [
+    document.createTextNode("Plano dos dois ativos mais eficientes — "),
+    no("b", {text:`x1 = ${m.ativo_x}`}), document.createTextNode(", "),
+    no("b", {text:`x2 = ${m.ativo_y}`}), document.createTextNode("."),
   ]));
-  section.appendChild(el("p", {}, [el("b", {text:"Objective: "}), el("code", {text: m.objective})]));
-  section.appendChild(el("p", {}, [el("b", {text:"Tangent (optimal iso-line): "}), el("code", {text: m.tangent})]));
+  secao.appendChild(no("p", {}, [no("b", {text:"Objetivo: "}), no("code", {text: m.objetivo})]));
+  secao.appendChild(no("p", {}, [no("b", {text:"Tangente (isolinha ótima): "}), no("code", {text: m.tangente})]));
 
-  section.appendChild(el("h3", {text:"Investment formulas (net profit per $1)"}));
-  (m.profit_functions || []).forEach((f) => {
-    section.appendChild(el("p", {}, [el("b", {text: f.asset + ": "}), el("code", {text: f.formula})]));
+  secao.appendChild(no("h3", {text:"Fórmulas dos investimentos (lucro líquido por R$ 1)"}));
+  (m.funcoes_lucro || []).forEach((f) => {
+    secao.appendChild(no("p", {}, [no("b", {text: f.ativo + ": "}), no("code", {text: f.formula})]));
   });
 
-  section.appendChild(el("h3", {text:"Constraints (lines)"}));
-  const cl = el("ul", {});
-  (m.constraints || []).forEach((c) => cl.appendChild(el("li", {}, [el("code", {text: c})])));
-  section.appendChild(cl);
+  secao.appendChild(no("h3", {text:"Restrições (retas)"}));
+  const cl = no("ul", {});
+  (m.restricoes || []).forEach((c) => cl.appendChild(no("li", {}, [no("code", {text: c})])));
+  secao.appendChild(cl);
 
-  section.appendChild(el("h3", {text:"Vertices — Z evaluated at each one"}));
-  const vhead = ["Vertex", "x1 ($)", "x2 ($)", "Z ($)", "Status"];
-  const vrows = (m.vertices || []).map((v) => [
-    v.label, fmt(v.x1), fmt(v.x2), fmt(v.z),
-    v.optimal ? (m.edge_optimal ? "OPTIMAL (edge)" : "OPTIMAL") : "—",
+  secao.appendChild(no("h3", {text:"Vértices — Z avaliado em cada um"}}));
+  const cabV = ["Vértice", "x1 (R$)", "x2 (R$)", "Z (R$)", "Status"];
+  const linhasV = (m.vertices || []).map((v) => [
+    v.rotulo, fmt(v.x1), fmt(v.x2), fmt(v.z),
+    v.otimo ? (m.otimo_aresta ? "ÓTIMO (aresta)" : "ÓTIMO") : "—",
   ]);
-  section.appendChild(tab(vhead, vrows));
+  secao.appendChild(tabela(cabV, linhasV));
 
-  section.appendChild(el("h3", {text:"Resolution — how the variable values are found"}));
-  const ol = el("ol", {});
-  (m.steps || []).forEach((s) => ol.appendChild(el("li", {}, [el("code", {text: s})])));
-  section.appendChild(ol);
-  section.appendChild(el("p", {class:"hint", text: m.note || ""}));
-  section.appendChild(el("p", {class:"hint", text:
-    `Actual greedy allocation on these axes: x1=${fmt(m.actual.x1)}, x2=${fmt(m.actual.x2)}.`}));
+  secao.appendChild(no("h3", {text:"Resolução — como os valores das variáveis são encontrados"}}));
+  const ol = no("ol", {});
+  (m.passos || []).forEach((s) => ol.appendChild(no("li", {}, [no("code", {text: s})])));
+  secao.appendChild(ol);
+  secao.appendChild(no("p", {class:"hint", text: m.observacao || ""}));
+  secao.appendChild(no("p", {class:"hint", text:
+    `Alocação gulosa efetiva nestes eixos: x1=${fmt(m.efetiva.x1)}, x2=${fmt(m.efetiva.x2)}.`}));
 }
 
-/* Renders the generic net-value logic (formulas, functions, variables)
-   plus the per-asset numeric walkthrough. No-op on pages without the
-   #calc-logic section (e.g. assets.html). */
-function renderCalculationLogic(j) {
-  const section = $("calc-logic");
-  if (!section) return;
-  const logic = j.calculation_logic;
-  const breakdown = j.breakdown || [];
-  section.innerHTML = "";
-  if (!logic) {
-    section.appendChild(el("p", {class:"hint", text:"No calculation details in this response — re-run the optimization."}));
+/* Renderiza a lógica genérica de valor líquido (fórmulas, funções, variáveis)
+   mais o passo a passo numérico por ativo. Não faz nada em páginas sem a
+   seção #logica-calculo (ex. assets.html). */
+function renderizarLogicaCalculo(j) {
+  const secao = $("logica-calculo");
+  if (!secao) return;
+  const logica = j.logica_calculo;
+  const detalhamento = j.detalhamento || [];
+  secao.innerHTML = "";
+  if (!logica) {
+    secao.appendChild(no("p", {class:"hint", text:"Sem detalhes de cálculo nesta resposta — execute a otimização de novo."}));
     return;
   }
-  section.appendChild(el("p", {text:"Every investment type shares one pipeline: compound to gross, then subtract tax and fee. Net = gross − tax − fee."}));
-  const pipe = el("ol", {});
-  (logic.pipeline || []).forEach((step) => pipe.appendChild(el("li", {}, [el("code", {text: step})])));
-  section.appendChild(pipe);
+  secao.appendChild(no("p", {text:"Todo tipo de investimento segue o mesmo pipeline: capitalizar até o bruto, depois subtrair imposto e taxa. Líquido = bruto − imposto − taxa."}));
+  const pipe = no("ol", {});
+  (logica.etapas || []).forEach((etapa) => pipe.appendChild(no("li", {}, [no("code", {text: etapa})])));
+  secao.appendChild(pipe);
 
-  section.appendChild(el("h3", {text:"Functions"}));
-  const fhead = ["Function", "Module", "Role"];
-  const frows = (logic.functions || []).map((f) => [f.name, f.module, f.role]);
-  section.appendChild(tab(fhead, frows));
+  secao.appendChild(no("h3", {text:"Funções"}));
+  const cabF = ["Função", "Módulo", "Papel"];
+  const linhasF = (logica.funcoes || []).map((f) => [f.nome, f.modulo, f.papel]);
+  secao.appendChild(tabela(cabF, linhasF));
 
-  section.appendChild(el("h3", {text:"Variables"}));
-  const vhead = ["Variable", "Meaning"];
-  const vrows = (logic.variables || []).map((v) => [v.name, v.meaning]);
-  section.appendChild(tab(vhead, vrows));
+  secao.appendChild(no("h3", {text:"Variáveis"}));
+  const cabV = ["Variável", "Significado"];
+  const linhasV = (logica.variaveis || []).map((v) => [v.nome, v.significado]);
+  secao.appendChild(tabela(cabV, linhasV));
 
-  if (breakdown.length) {
-    section.appendChild(el("h3", {text:"Per-asset walkthrough (actual numbers)"}));
-    breakdown.forEach((b) => {
-      const det = el("details", {}, [
-        el("summary", {text:`${b.asset}: net ${fmt(b.net_amount)} = gross ${fmt(b.gross_amount)} − tax ${fmt(b.tax)} − fee ${fmt(b.fee)}`}),
-        el("div", {class:"gloss"}, [
-          b.gross_detail ? el("p", {}, [el("b", {text:"Gross: "}), document.createTextNode(b.gross_detail)]) : null,
-          b.spec ? el("p", {}, [el("b", {text:"Spec: "}),
-            document.createTextNode(`tax ${b.spec.tax_mode}${b.spec.tax_mode === "fixed" ? " " + (b.spec.tax_percent*100).toFixed(2) + "%" : ""} · fee ${b.spec.fee_mode}${b.spec.fee_mode === "none" ? "" : " " + (b.spec.fee_percent*100).toFixed(3) + "%"} · ${b.spec.term_months}m`)]) : null,
-          el("p", {}, [el("b", {text:"Tax: "}), document.createTextNode(b.tax_formula || "")]),
-          el("p", {}, [el("b", {text:"Fee: "}), document.createTextNode(b.fee_formula || "")]),
-          el("ol", {}, (b.steps || []).map((s) => el("li", {}, [el("code", {text: s})]))),
+  if (detalhamento.length) {
+    secao.appendChild(no("h3", {text:"Passo a passo por ativo (números efetivos)"}));
+    detalhamento.forEach((b) => {
+      const det = no("details", {}, [
+        no("summary", {text:`${b.ativo}: líquido ${fmt(b.valor_liquido)} = bruto ${fmt(b.valor_bruto)} − imposto ${fmt(b.imposto)} − taxa ${fmt(b.taxa)}`}),
+        no("div", {class:"gloss"}, [
+          b.detalhe_bruto ? no("p", {}, [no("b", {text:"Bruto: "}), document.createTextNode(b.detalhe_bruto)]) : null,
+          b.especificacao ? no("p", {}, [no("b", {text:"Especificação: "}),
+            document.createTextNode(`imposto ${b.especificacao.modo_imposto}${b.especificacao.modo_imposto === "fixo" ? " " + (b.especificacao.imposto_pct*100).toFixed(2) + "%" : ""} · taxa ${b.especificacao.modo_taxa}${b.especificacao.modo_taxa === "nenhuma" ? "" : " " + (b.especificacao.taxa_pct*100).toFixed(3) + "%"} · ${b.especificacao.prazo_meses}m`)]) : null,
+          no("p", {}, [no("b", {text:"Imposto: "}), document.createTextNode(b.formula_imposto || "")]),
+          no("p", {}, [no("b", {text:"Taxa: "}), document.createTextNode(b.formula_taxa || "")]),
+          no("ol", {}, (b.passos || []).map((s) => no("li", {}, [no("code", {text: s})]))),
         ].filter(Boolean)),
       ]);
-      section.appendChild(det);
+      secao.appendChild(det);
     });
   }
 }
 
-function showError(msg) {
-  const box = $("error");
-  box.innerHTML = "";
-  box.appendChild(el("div", {class:"banner err", text:msg}));
+function mostrarErro(msg) {
+  const caixa = $("erro");
+  caixa.innerHTML = "";
+  caixa.appendChild(no("div", {class:"banner err", text:msg}));
 }
